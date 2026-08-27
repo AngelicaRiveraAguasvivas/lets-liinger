@@ -33,6 +33,7 @@ export interface EventFormInitialValues {
   longitude: number | null;
   coverUrl?: string | null;
   category?: string | null;
+  visibility?: string | null;
 }
 
 export interface EventFormSubmitValues {
@@ -43,6 +44,7 @@ export interface EventFormSubmitValues {
   eventTimeIso: string;
   coverUrl: string | null;
   category: string | null;
+  visibility: string;
 }
 
 interface EventFormModalProps {
@@ -98,6 +100,7 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
   const [myClubs, setMyClubs] = useState<string[]>([]);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
+  const [visibility, setVisibility] = useState<'school' | 'public'>('school');
   const [coverMenuVisible, setCoverMenuVisible] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -126,6 +129,7 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
     setTime(parseInitialTime(initialValues));
     setCoverUrl(initialValues?.coverUrl ?? null);
     setCategory(initialValues?.category ?? null);
+    setVisibility((initialValues?.visibility as 'school' | 'public') ?? 'school');
     setFormError('');
     place.reset(parseInitialPlace(initialValues));
     // Pull the clubs the user belongs to (from their profile) so they show up
@@ -170,6 +174,7 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
       eventTimeIso: toEventTimeIso(date, time),
       coverUrl,
       category,
+      visibility,
     });
     setSaving(false);
 
@@ -259,6 +264,22 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
             onChangeText={setHost}
           />
 
+          <ThemedText style={styles.label} themeColor="accentCyan">Who can see this?</ThemedText>
+          <View style={styles.visRow}>
+            <TouchableOpacity
+              style={[styles.visChip, { borderColor: theme.border, backgroundColor: visibility === 'school' ? theme.accentGreen : theme.backgroundElement }]}
+              onPress={() => setVisibility('school')}
+            >
+              <ThemedText style={[styles.visText, visibility === 'school' && { color: '#000' }]}>🏫 My school only</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.visChip, { borderColor: theme.border, backgroundColor: visibility === 'public' ? theme.accentCyan : theme.backgroundElement }]}
+              onPress={() => setVisibility('public')}
+            >
+              <ThemedText style={[styles.visText, visibility === 'public' && { color: '#000' }]}>🌎 Everyone</ThemedText>
+            </TouchableOpacity>
+          </View>
+
           <ThemedText style={styles.label} themeColor="accentCyan">Date</ThemedText>
           <DateTimeField mode="date" value={date} onChange={setDate} placeholder="Pick a date" colors={theme} />
 
@@ -317,6 +338,9 @@ const styles = StyleSheet.create({
   },
   catDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1 },
   catChipText: { fontSize: 12, fontWeight: '800' },
+  visRow: { flexDirection: 'row', gap: Spacing.two },
+  visChip: { flex: 1, borderWidth: 2, borderRadius: 12, paddingVertical: Spacing.two, alignItems: 'center' },
+  visText: { fontSize: 13, fontWeight: '800' },
   label: {
     fontSize: 12, fontWeight: '900', marginBottom: Spacing.two, marginTop: Spacing.three, letterSpacing: 0.5,
   },

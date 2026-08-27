@@ -57,6 +57,7 @@ interface EnrichedEvent {
   distance: number | null;
   coverUrl: string | null;
   category: string | null;
+  school: string | null;
 }
 
 // "Posted 3h ago" style relative label.
@@ -120,6 +121,8 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('upcoming');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [myUniversity, setMyUniversity] = useState<string | null>(null);
+  const [scope, setScope] = useState<'mine' | 'all'>('mine');
   const [followingOnly, setFollowingOnly] = useState(false);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [unreadNotifs, setUnreadNotifs] = useState(0);
@@ -138,7 +141,7 @@ export default function HomeScreen() {
     let eventsQuery = supabase
       .from('events')
       .select(
-        'id, title, description, location, event_time, latitude, longitude, created_at, host, created_by, cover_url, category, creator:profiles!events_created_by_fkey(username, display_name)',
+        'id, title, description, location, event_time, latitude, longitude, created_at, host, created_by, cover_url, category, school, creator:profiles!events_created_by_fkey(username, display_name)',
         { count: 'exact' }
       )
       .order('created_at', { ascending: false })
@@ -157,6 +160,13 @@ export default function HomeScreen() {
 
     setFollowingIds(following);
     setUnreadNotifs(unread);
+
+    if (user) {
+      const { data: prof } = await supabase.from('profiles').select('university').eq('id', user.id).single();
+      const uni = (prof as any)?.university ?? null;
+      setMyUniversity(uni);
+      if (!uni) setScope('all'); // no school set → nothing to scope to
+    }
 
     // Hide events posted by people you've blocked (or who blocked you).
     const rawEvents = (eventsRes.data ?? []).filter((e: any) => !e.created_by || !blocked.has(e.created_by));
@@ -211,6 +221,7 @@ export default function HomeScreen() {
             : null,
         coverUrl: e.cover_url ?? null,
         category: e.category ?? null,
+        school: e.school ?? null,
       };
     });
 
@@ -284,6 +295,10 @@ export default function HomeScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: 'You need to be signed in.' };
 
+    // Stamp the event with the creator's school so it can be school-scoped.
+    const { data: prof } = await supabase.from('profiles').select('university').eq('id', user.id).single();
+    const school = (prof as any)?.university ?? null;
+
     const { error } = await supabase.from('events').insert({
       title: values.title,
       description: values.description || null,
@@ -295,6 +310,8 @@ export default function HomeScreen() {
       longitude: values.place.lng,
       cover_url: values.coverUrl,
       category: values.category,
+      visibility: values.visibility,
+      school,
     });
 
     if (error) return { error: error.message };
@@ -307,6 +324,7 @@ export default function HomeScreen() {
 
   // Filter + sort for display
   const visibleEvents = events
+    .filter((e) => (scope === 'mine' && myUniversity ? e.school === myUniversity : true))
     .filter((e) => (followingOnly ? !!e.createdBy && followingIds.has(e.createdBy) : true))
     .filter((e) => (categoryFilter ? e.category === categoryFilter : true))
     .filter((e) => {
@@ -451,6 +469,24 @@ export default function HomeScreen() {
             style={styles.followingChip}
           />
         </ScrollView>
+
+        <View style={styles.scopeRow}>
+          <TouchableOpacity
+            onPress={() => setScope('mine')}
+            disabled={!myUniversity}
+            style={[styles.scopeChip, { borderColor: colors.border, backgroundColor: scope === 'mine' ? colors.accentGreen : 'transparent', opacity: myUniversity ? 1 : 0.4 }]}
+          >
+            <ThemedText style={[styles.scopeText, scope === 'mine' && { color: '#000' }]}>
+              🏫 {myUniversity ? 'My school' : 'Set your school'}
+            </ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setScope('all')}
+            style={[styles.scopeChip, { borderColor: colors.border, backgroundColor: scope === 'all' ? colors.accentCyan : 'transparent' }]}
+          >
+            <ThemedText style={[styles.scopeText, scope === 'all' && { color: '#000' }]}>🌎 All schools</ThemedText>
+          </TouchableOpacity>
+        </View>
 
         <ScrollView
           horizontal
@@ -659,6 +695,9 @@ const styles = StyleSheet.create({
   cardCover: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, marginBottom: Spacing.two },
   cardCategory: { alignSelf: 'flex-start', borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: 2, marginBottom: Spacing.one },
   cardCategoryText: { fontSize: 10, fontWeight: '900', color: '#000' },
+  scopeRow: { flexDirection: 'row', gap: Spacing.two, marginBottom: Spacing.two },
+  scopeChip: { flex: 1, borderWidth: 2, borderRadius: 12, paddingVertical: Spacing.two, alignItems: 'center' },
+  scopeText: { fontSize: 13, fontWeight: '900' },
   catFilterChip: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one, borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: 5 },
   catFilterDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1 },
   catFilterText: { fontSize: 12, fontWeight: '800' },

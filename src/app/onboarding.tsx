@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarSourceModal } from '@/components/avatar-source-modal';
 import { ClubChipPicker } from '@/components/club-chip-picker';
+import { SchoolPicker } from '@/components/school-picker';
 import { ThemedText } from '@/components/themed-text';
 import { Chip } from '@/components/ui/chip';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
@@ -192,7 +193,7 @@ export default function OnboardingScreen() {
 
         <ThemedText style={styles.label} themeColor="accentCyan">School</ThemedText>
         <ThemedText style={styles.hint} themeColor="textSecondary">So classmates can find their people. All optional.</ThemedText>
-        <TextField label="University" value={university} onChangeText={setUniversity} />
+        <SchoolPicker value={university} onChange={setUniversity} />
         <View style={styles.row2}>
           <TextField containerStyle={styles.flex1} label="Grad year" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
           <TextField containerStyle={styles.flex1} label="Cohort" value={cohort} onChangeText={setCohort} />

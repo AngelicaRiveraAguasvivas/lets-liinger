@@ -49,6 +49,7 @@ interface EventDetail {
   longitude: number | null;
   coverUrl: string | null;
   category: string | null;
+  visibility: string | null;
 }
 
 export default function EventDetailScreen() {
@@ -88,7 +89,7 @@ export default function EventDetailScreen() {
     const [eventRes, likesRes, rsvpsRes, commentsRes] = await Promise.all([
       supabase
         .from('events')
-        .select('id, title, description, location, event_time, host, created_at, created_by, latitude, longitude, cover_url, category, creator:profiles!events_created_by_fkey(username, display_name, avatar_url)')
+        .select('id, title, description, location, event_time, host, created_at, created_by, latitude, longitude, cover_url, category, visibility, creator:profiles!events_created_by_fkey(username, display_name, avatar_url)')
         .eq('id', id)
         .single(),
       supabase.from('event_likes').select('user_id').eq('event_id', id),
@@ -123,6 +124,7 @@ export default function EventDetailScreen() {
         longitude: e.longitude ?? null,
         coverUrl: e.cover_url ?? null,
         category: e.category ?? null,
+        visibility: e.visibility ?? null,
       });
     }
 
@@ -256,6 +258,7 @@ export default function EventDetailScreen() {
         longitude: event.longitude,
         coverUrl: event.coverUrl,
         category: event.category,
+        visibility: event.visibility,
       }
     : undefined;
 
@@ -272,6 +275,7 @@ export default function EventDetailScreen() {
         longitude: values.place.lng,
         cover_url: values.coverUrl,
         category: values.category,
+        visibility: values.visibility,
       })
       .eq('id', id);
 
