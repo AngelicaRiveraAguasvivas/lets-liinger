@@ -21,6 +21,7 @@ export interface DirectMessage {
   created_at: string;
   reply_to_id: string | null;
   liked: boolean;
+  read_at: string | null;
 }
 
 export interface ConversationSummary {
@@ -64,7 +65,7 @@ export async function fetchConversations(myUserId: string): Promise<Conversation
 export async function fetchThread(myUserId: string, otherUserId: string, limit = 50): Promise<DirectMessage[]> {
   const { data } = await supabase
     .from('direct_messages')
-    .select('id, sender_id, recipient_id, content, created_at, reply_to_id, liked')
+    .select('id, sender_id, recipient_id, content, created_at, reply_to_id, liked, read_at')
     .or(`and(sender_id.eq.${myUserId},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${myUserId})`)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -91,6 +92,12 @@ export async function sendDirectMessage(
 export async function toggleMessageLike(messageId: string): Promise<boolean> {
   const { data } = await supabase.rpc('toggle_dm_like', { msg_id: messageId });
   return !!data;
+}
+
+// Mark every message the other person sent me in this thread as read (powers
+// read receipts — the sender then sees "Seen" via the realtime UPDATE feed).
+export async function markThreadRead(otherUserId: string): Promise<void> {
+  await supabase.rpc('mark_thread_read', { other_id: otherUserId });
 }
 
 export async function fetchProfile(userId: string): Promise<ProfileLite | null> {
@@ -158,6 +165,33 @@ export function subscribeToMyMessageUpdates(myUserId: string, onUpdate: (row: Di
   return () => {
     supabase.removeChannel(channel);
   };
+}
+
+// Ephemeral "is typing" over a realtime broadcast channel shared by the two
+// participants (no DB writes). `notifyTyping` is throttled; call it on each
+// keystroke. `onTyping` fires when the OTHER person is typing.
+export function subscribeToTyping(
+  myId: string,
+  otherId: string,
+  onTyping: () => void
+): { notifyTyping: () => void; unsubscribe: () => void } {
+  const key = [myId, otherId].sort().join('_');
+  const channel = supabase
+    .channel(`typing-${key}`, { config: { broadcast: { self: false } } })
+    .on('broadcast', { event: 'typing' }, (payload) => {
+      if ((payload.payload as any)?.from === otherId) onTyping();
+    })
+    .subscribe();
+
+  let last = 0;
+  const notifyTyping = () => {
+    const now = Date.now();
+    if (now - last < 1500) return; // throttle broadcasts
+    last = now;
+    channel.send({ type: 'broadcast', event: 'typing', payload: { from: myId } });
+  };
+
+  return { notifyTyping, unsubscribe: () => { supabase.removeChannel(channel); } };
 }
 
 export function profileLabel(p: ProfileLite | null | undefined): string {

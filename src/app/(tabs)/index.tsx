@@ -23,7 +23,8 @@ import { useNotifications } from '@/hooks/notifications-context';
 import { useTheme } from '@/hooks/use-theme';
 import { useUserCoords } from '@/hooks/use-user-coords';
 import { EVENT_CATEGORIES, categoryColor, categoryLabel } from '@/lib/categories';
-import { getFollowingIds, getUnreadFollowerCount } from '../../lib/follows';
+import { getUnreadNotificationCount } from '@/lib/notifications';
+import { getFollowingIds } from '../../lib/follows';
 import { getBlockedIds } from '../../lib/moderation';
 import type { Coords } from '../../lib/places';
 import { supabase } from '../../supabaseClient';
@@ -151,7 +152,7 @@ export default function HomeScreen() {
       eventsQuery,
       user ? getFollowingIds(user.id) : Promise.resolve(new Set<string>()),
       user ? getBlockedIds(user.id) : Promise.resolve(new Set<string>()),
-      user ? getUnreadFollowerCount(user.id) : Promise.resolve(0),
+      user ? getUnreadNotificationCount(user.id) : Promise.resolve(0),
     ]);
 
     setFollowingIds(following);
@@ -529,7 +530,13 @@ export default function HomeScreen() {
 
               <View style={styles.metaRow}>
                 <ThemedText style={styles.metaLabel}>HOSTED BY:</ThemedText>
-                <ThemedText style={styles.metaValue}>{event.hostName}</ThemedText>
+                {event.hostName.startsWith('@') ? (
+                  <ThemedText style={styles.metaValue}>{event.hostName}</ThemedText>
+                ) : (
+                  <TouchableOpacity onPress={() => router.push(`/club?name=${encodeURIComponent(event.hostName)}`)}>
+                    <ThemedText style={[styles.metaValue, { color: colors.accentCyan }]}>{event.hostName}</ThemedText>
+                  </TouchableOpacity>
+                )}
               </View>
 
               <View style={styles.detailItem}>

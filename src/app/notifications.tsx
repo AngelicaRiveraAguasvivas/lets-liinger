@@ -141,6 +141,28 @@ export default function NotificationsScreen() {
       );
     }
 
+    if (it.kind === 'engagement') {
+      const name = it.profile?.display_name || it.profile?.username || 'Someone';
+      return (
+        <ShadowSurface
+          key={it.key}
+          backgroundColor={colors.backgroundElement}
+          radius={14} offset={3} borderWidth={2}
+          wrapperStyle={styles.rowWrap} style={styles.row}
+          onPress={() => router.push(`/event-detail?id=${it.eventId}`)}
+        >
+          {avatarFor(it.profile, name, colors.accentPink)}
+          <View style={styles.info}>
+            <ThemedText style={styles.text} numberOfLines={2}>
+              <ThemedText style={styles.bold}>@{it.profile?.username || 'someone'}</ThemedText> {it.verb} your event
+            </ThemedText>
+            <ThemedText style={styles.preview} themeColor="textSecondary" numberOfLines={1}>{it.title}</ThemedText>
+            <ThemedText style={styles.time} themeColor="textSecondary">{relative(it.createdAt)}</ThemedText>
+          </View>
+        </ShadowSurface>
+      );
+    }
+
     // event
     const name = it.profile?.display_name || it.profile?.username || 'Someone';
     return (

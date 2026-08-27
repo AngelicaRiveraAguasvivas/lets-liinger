@@ -385,8 +385,14 @@ export default function EventDetailScreen() {
             <ThemedText style={styles.metaLabel}>HOSTED BY:</ThemedText>
             <TouchableOpacity
               style={styles.hostChip}
-              onPress={() => event.createdBy && router.push(`/user?id=${event.createdBy}`)}
-              disabled={!event.createdBy || event.createdBy === userId}
+              onPress={() => {
+                if (event.hostRaw && event.hostRaw.trim()) {
+                  router.push(`/club?name=${encodeURIComponent(event.hostRaw.trim())}`);
+                } else if (event.createdBy) {
+                  router.push(`/user?id=${event.createdBy}`);
+                }
+              }}
+              disabled={!event.hostRaw && (!event.createdBy || event.createdBy === userId)}
               activeOpacity={0.7}
             >
               <AvatarBubble url={event.hostAvatar} name={event.hostName} size={24} />

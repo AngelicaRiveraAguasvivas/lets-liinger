@@ -9,8 +9,8 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  DirectMessage, ProfileLite, fetchProfile, fetchThread, profileLabel,
-  sendDirectMessage, subscribeToMyMessages, subscribeToMyMessageUpdates, toggleMessageLike,
+  DirectMessage, ProfileLite, fetchProfile, fetchThread, markThreadRead, profileLabel,
+  sendDirectMessage, subscribeToMyMessages, subscribeToMyMessageUpdates, subscribeToTyping, toggleMessageLike,
 } from '@/lib/messages';
 import { checkClean } from '../lib/profanity';
 import { supabase } from '../supabaseClient';
@@ -64,7 +64,10 @@ export default function DmThreadScreen() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [replyTo, setReplyTo] = useState<DirectMessage | null>(null);
+  const [otherTyping, setOtherTyping] = useState(false);
   const seenIds = useRef<Set<string>>(new Set());
+  const typingRef = useRef<{ notifyTyping: () => void } | null>(null);
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchAll = useCallback(async () => {
     if (!otherUserId) { setLoading(false); return; }
@@ -83,6 +86,9 @@ export default function DmThreadScreen() {
     setMessages(thread);
     seenIds.current = new Set(thread.map((m) => m.id));
     setLoading(false);
+
+    // Mark their messages as read (drives their "Seen" receipt).
+    markThreadRead(otherUserId);
   }, [otherUserId]);
 
   useFocusEffect(
@@ -94,13 +100,24 @@ export default function DmThreadScreen() {
         if (seenIds.current.has(row.id)) return;
         seenIds.current.add(row.id);
         setMessages((prev) => [...prev, row]);
+        // I'm viewing the thread, so their new message is immediately read.
+        if (row.sender_id === otherUserId) markThreadRead(otherUserId);
       });
-      // Live-update likes (and any other field changes) on existing messages.
+      // Live-update likes + read receipts on existing messages.
       const unsubUpdate = subscribeToMyMessageUpdates(myUserId, (row) => {
         if (row.sender_id !== otherUserId && row.recipient_id !== otherUserId) return;
         setMessages((prev) => prev.map((m) => (m.id === row.id ? { ...m, ...row } : m)));
       });
-      return () => { unsubInsert(); unsubUpdate(); };
+      // Typing indicator channel.
+      const typing = otherUserId
+        ? subscribeToTyping(myUserId, otherUserId, () => {
+            setOtherTyping(true);
+            if (typingTimer.current) clearTimeout(typingTimer.current);
+            typingTimer.current = setTimeout(() => setOtherTyping(false), 2500);
+          })
+        : null;
+      typingRef.current = typing;
+      return () => { unsubInsert(); unsubUpdate(); typing?.unsubscribe(); };
     }, [fetchAll, myUserId, otherUserId])
   );
 
@@ -126,6 +143,10 @@ export default function DmThreadScreen() {
   }
 
   const msgById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+
+  // Show "Seen" when my most recent message has been read by the other person.
+  const lastMsg = messages[messages.length - 1];
+  const seenReceipt = !!lastMsg && lastMsg.sender_id === myUserId && !!lastMsg.read_at;
 
   const dynamicStyles = useMemo(() => StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: colors.background },
@@ -167,7 +188,9 @@ export default function DmThreadScreen() {
           <ThemedText style={dynamicStyles.headerText} numberOfLines={1}>
             {profileLabel(otherProfile)}
           </ThemedText>
-          {subtitle ? (
+          {otherTyping ? (
+            <ThemedText style={styles.headerSub} themeColor="accentCyan" numberOfLines={1}>typing…</ThemedText>
+          ) : subtitle ? (
             <ThemedText style={styles.headerSub} themeColor="textSecondary" numberOfLines={1}>{subtitle}</ThemedText>
           ) : null}
         </TouchableOpacity>
@@ -180,6 +203,11 @@ export default function DmThreadScreen() {
         data={[...messages].reverse()}
         inverted
         keyExtractor={(item) => item.id}
+        ListHeaderComponent={
+          seenReceipt ? (
+            <ThemedText style={styles.seenReceipt} themeColor="textSecondary">Seen</ThemedText>
+          ) : null
+        }
         renderItem={({ item }) => {
           const mine = item.sender_id === myUserId;
           const repliedTo = item.reply_to_id ? msgById.get(item.reply_to_id) : null;
@@ -226,7 +254,7 @@ export default function DmThreadScreen() {
           placeholder={replyTo ? 'Write a reply…' : 'Message...'}
           placeholderTextColor={colors.textSecondary}
           value={newMessage}
-          onChangeText={setNewMessage}
+          onChangeText={(t) => { setNewMessage(t); typingRef.current?.notifyTyping(); }}
           multiline
         />
         <TouchableOpacity style={dynamicStyles.sendBtn} onPress={handleSend} disabled={sending}>
@@ -331,6 +359,7 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderRadius: 10, paddingHorizontal: 4, paddingVertical: 0,
   },
   likeHeart: { fontSize: 11, color: '#FF007F', fontWeight: '900' },
+  seenReceipt: { fontSize: 11, fontWeight: '700', textAlign: 'right', marginTop: Spacing.one },
   emptyText: { fontSize: 13, fontWeight: '600', textAlign: 'center', marginTop: Spacing.six },
   replyBar: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.two,

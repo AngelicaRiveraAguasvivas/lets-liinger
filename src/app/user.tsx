@@ -43,6 +43,8 @@ export default function UserProfileScreen() {
   const [blocked, setBlocked] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [reported, setReported] = useState(false);
+  const [hosting, setHosting] = useState<{ id: string; title: string; location: string | null }[]>([]);
+  const [going, setGoing] = useState<{ id: string; title: string; location: string | null }[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -71,6 +73,14 @@ export default function UserProfileScreen() {
         setFollowing(isF);
         setMutuals(mut);
         setBlocked(myBlocked.has(id));
+
+        const [hostRes, goRes] = await Promise.all([
+          supabase.from('events').select('id, title, location').eq('created_by', id).order('created_at', { ascending: false }).limit(10),
+          supabase.from('rsvps').select('event:events!rsvps_event_id_fkey(id, title, location)').eq('user_id', id).limit(10),
+        ]);
+        if (cancelled) return;
+        setHosting((hostRes.data as any[]) ?? []);
+        setGoing(((goRes.data ?? []) as any[]).map((r) => r.event).filter(Boolean));
         setLoading(false);
       })();
       return () => { cancelled = true; };
@@ -244,11 +254,46 @@ export default function UserProfileScreen() {
                 key={`${club.name}-${i}`}
                 backgroundColor={clubColors[i % clubColors.length]}
                 radius={14} offset={3} wrapperStyle={styles.mb2} style={styles.clubTag}
+                onPress={() => router.push(`/club?name=${encodeURIComponent(club.name)}`)}
               >
                 <ThemedText style={styles.clubName}>{club.name}</ThemedText>
                 <View style={[styles.roleBadge, { borderColor: colors.border }]}>
                   <ThemedText style={styles.roleText}>{club.role}</ThemedText>
                 </View>
+              </ShadowSurface>
+            ))}
+          </>
+        )}
+
+        {hosting.length > 0 && (
+          <>
+            <ThemedText style={[styles.section, { color: colors.text }]}>HOSTING</ThemedText>
+            {hosting.map((e) => (
+              <ShadowSurface
+                key={`h-${e.id}`}
+                backgroundColor={colors.backgroundElement}
+                radius={14} offset={3} borderWidth={2} wrapperStyle={styles.mb2} style={styles.eventRow}
+                onPress={() => router.push(`/event-detail?id=${e.id}`)}
+              >
+                <ThemedText style={styles.eventRowTitle} numberOfLines={1}>{e.title}</ThemedText>
+                {e.location ? <ThemedText style={styles.eventRowSub} themeColor="textSecondary" numberOfLines={1}>{e.location}</ThemedText> : null}
+              </ShadowSurface>
+            ))}
+          </>
+        )}
+
+        {going.length > 0 && (
+          <>
+            <ThemedText style={[styles.section, { color: colors.text }]}>GOING TO</ThemedText>
+            {going.map((e) => (
+              <ShadowSurface
+                key={`g-${e.id}`}
+                backgroundColor={colors.backgroundElement}
+                radius={14} offset={3} borderWidth={2} wrapperStyle={styles.mb2} style={styles.eventRow}
+                onPress={() => router.push(`/event-detail?id=${e.id}`)}
+              >
+                <ThemedText style={styles.eventRowTitle} numberOfLines={1}>{e.title}</ThemedText>
+                {e.location ? <ThemedText style={styles.eventRowSub} themeColor="textSecondary" numberOfLines={1}>{e.location}</ThemedText> : null}
               </ShadowSurface>
             ))}
           </>
@@ -309,7 +354,10 @@ const styles = StyleSheet.create({
   statInner: { paddingVertical: Spacing.three, alignItems: 'center' },
   statNum: { fontSize: 22, fontWeight: '900' },
   statLabel: { fontSize: 10, fontWeight: '800', opacity: 0.6, letterSpacing: 0.5 },
-  section: { fontWeight: '900', fontSize: 16, letterSpacing: 0.5, marginBottom: Spacing.two },
+  section: { fontWeight: '900', fontSize: 16, letterSpacing: 0.5, marginBottom: Spacing.two, marginTop: Spacing.two },
+  eventRow: { padding: Spacing.three },
+  eventRowTitle: { fontSize: 14, fontWeight: '900' },
+  eventRowSub: { fontSize: 12, fontWeight: '600', marginTop: 1 },
   clubTag: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
   clubName: { fontSize: 14, fontWeight: '900', color: '#000' },
   roleBadge: { backgroundColor: '#FFF', borderWidth: 1.5, borderRadius: 8, paddingHorizontal: Spacing.two, paddingVertical: 2 },

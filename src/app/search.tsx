@@ -202,6 +202,7 @@ export default function SearchScreen() {
                   backgroundColor={colors.backgroundElement}
                   radius={14} offset={3} borderWidth={2}
                   wrapperStyle={styles.rowWrap} style={styles.row}
+                  onPress={() => router.push(`/club?name=${encodeURIComponent(c.name)}`)}
                 >
                   <ThemedText style={styles.rowTitle}>{c.emoji ? `${c.emoji} ` : ''}{c.name}</ThemedText>
                 </ShadowSurface>

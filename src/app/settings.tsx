@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
+import { TextField } from '@/components/ui/text-field';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { deleteAccount } from '../lib/account';
@@ -35,12 +36,19 @@ export default function SettingsScreen() {
   const [pushBusy, setPushBusy] = useState(false);
   const [pushNote, setPushNote] = useState('');
 
+  const [currentEmail, setCurrentEmail] = useState('');
+  const [emailModalVisible, setEmailModalVisible] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailNote, setEmailNote] = useState('');
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user && !cancelled) {
         setSelfId(user.id);
+        setCurrentEmail(user.email ?? '');
         const [mod, push] = await Promise.all([isModerator(user.id), getPushEnabled(user.id)]);
         if (!cancelled) {
           setModerator(mod);
@@ -50,6 +58,23 @@ export default function SettingsScreen() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  async function handleChangeEmail() {
+    setEmailNote('');
+    const next = newEmail.trim().toLowerCase();
+    if (!next || !next.includes('@')) {
+      setEmailNote('Enter a valid email address.');
+      return;
+    }
+    setEmailBusy(true);
+    const { error } = await supabase.auth.updateUser({ email: next });
+    setEmailBusy(false);
+    if (error) {
+      setEmailNote(error.message);
+      return;
+    }
+    setEmailNote('Confirmation links sent — check both your old and new email to finish.');
+  }
 
   async function handleTogglePush(next: boolean) {
     if (!selfId || pushBusy) return;
@@ -109,6 +134,10 @@ export default function SettingsScreen() {
         <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/edit-profile')}>
             <ThemedText style={styles.rowLabel}>Edit profile</ThemedText>
+            <ThemedText style={styles.chevron} themeColor="textSecondary">›</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity style={dynamicStyles.row} onPress={() => { setEmailNote(''); setNewEmail(''); setEmailModalVisible(true); }}>
+            <ThemedText style={styles.rowLabel}>Change email</ThemedText>
             <ThemedText style={styles.chevron} themeColor="textSecondary">›</ThemedText>
           </TouchableOpacity>
           <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={handleLogOut}>
@@ -213,6 +242,41 @@ export default function SettingsScreen() {
 
               <TouchableOpacity style={styles.cancelBtn} onPress={() => !deleting && setConfirmVisible(false)} disabled={deleting}>
                 <ThemedText style={styles.cancelText}>Cancel</ThemedText>
+              </TouchableOpacity>
+            </ShadowSurface>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Change email */}
+      <Modal visible={emailModalVisible} transparent animationType="fade" onRequestClose={() => setEmailModalVisible(false)}>
+        <Pressable style={styles.backdrop} onPress={() => !emailBusy && setEmailModalVisible(false)}>
+          <Pressable onPress={() => {}}>
+            <ShadowSurface backgroundColor={colors.backgroundElement} radius={20} offset={5} wrapperStyle={styles.confirmShadow} style={styles.confirmCard}>
+              <ThemedText style={styles.confirmTitle}>Change email</ThemedText>
+              <ThemedText style={styles.confirmBody} themeColor="textSecondary">
+                Current: {currentEmail || '—'}
+              </ThemedText>
+              <TextField
+                label="New email"
+                placeholder="you@newemail.com"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                value={newEmail}
+                onChangeText={setNewEmail}
+              />
+              {emailNote ? <ThemedText style={styles.hint} themeColor="accentCyan">{emailNote}</ThemedText> : null}
+              <ShadowSurface
+                backgroundColor={colors.accentYellow}
+                radius={12} offset={3}
+                wrapperStyle={styles.confirmDeleteShadow} style={styles.confirmDeleteBtn}
+                onPress={emailBusy ? undefined : handleChangeEmail}
+                disabled={emailBusy}
+              >
+                {emailBusy ? <ActivityIndicator color="#000" /> : <ThemedText style={styles.deleteBtnText}>Send confirmation</ThemedText>}
+              </ShadowSurface>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => !emailBusy && setEmailModalVisible(false)} disabled={emailBusy}>
+                <ThemedText style={styles.cancelText}>Close</ThemedText>
               </TouchableOpacity>
             </ShadowSurface>
           </Pressable>

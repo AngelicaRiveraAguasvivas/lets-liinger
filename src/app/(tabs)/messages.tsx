@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AvatarBubble } from '@/components/avatar-bubble';
 import { ThemedText } from '@/components/themed-text';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { TextField } from '@/components/ui/text-field';
@@ -132,17 +133,22 @@ export default function MessagesScreen() {
               style={styles.card}
               onPress={() => router.push(`/dm-thread?userId=${c.otherUserId}`)}
             >
-              <View style={styles.cardTopRow}>
-                <ThemedText style={styles.cardName} numberOfLines={1}>
-                  {profileLabel(c.otherProfile)}
-                </ThemedText>
-                <ThemedText style={styles.cardTime} themeColor="textSecondary">
-                  {formatRelative(c.lastCreatedAt)}
-                </ThemedText>
+              <View style={styles.cardRow}>
+                <AvatarBubble url={c.otherProfile?.avatar_url} name={profileLabel(c.otherProfile)} size={44} />
+                <View style={styles.cardBody}>
+                  <View style={styles.cardTopRow}>
+                    <ThemedText style={styles.cardName} numberOfLines={1}>
+                      {profileLabel(c.otherProfile)}
+                    </ThemedText>
+                    <ThemedText style={styles.cardTime} themeColor="textSecondary">
+                      {formatRelative(c.lastCreatedAt)}
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={styles.cardPreview} themeColor="textSecondary" numberOfLines={1}>
+                    {c.lastMessageMine ? 'You: ' : ''}{c.lastContent}
+                  </ThemedText>
+                </View>
               </View>
-              <ThemedText style={styles.cardPreview} themeColor="textSecondary" numberOfLines={1}>
-                {c.lastMessageMine ? 'You: ' : ''}{c.lastContent}
-              </ThemedText>
             </ShadowSurface>
           ))
         )}
@@ -174,6 +180,7 @@ export default function MessagesScreen() {
             <ScrollView style={styles.resultsList} keyboardShouldPersistTaps="handled">
               {searchResults.map((p) => (
                 <TouchableOpacity key={p.id} style={styles.resultRow} onPress={() => startConversationWith(p.id)}>
+                  <AvatarBubble url={p.avatar_url} name={profileLabel(p)} size={32} />
                   <ThemedText style={styles.resultText}>{profileLabel(p)}</ThemedText>
                 </TouchableOpacity>
               ))}
@@ -198,6 +205,8 @@ const styles = StyleSheet.create({
   noteText: { fontSize: 13, fontWeight: '600' },
   cardShadow: { marginBottom: Spacing.two },
   card: { padding: Spacing.three },
+  cardRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  cardBody: { flex: 1 },
   cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.two },
   cardName: { fontSize: 15, fontWeight: '900', flex: 1 },
   cardTime: { fontSize: 11, fontWeight: '700' },
@@ -212,6 +221,6 @@ const styles = StyleSheet.create({
   spacer: { width: 50 },
   searchHint: { fontSize: 12, fontWeight: '700', marginTop: Spacing.one },
   resultsList: { marginTop: Spacing.two },
-  resultRow: { paddingVertical: Spacing.three, borderBottomWidth: 1, borderBottomColor: '#88888833' },
+  resultRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.three, borderBottomWidth: 1, borderBottomColor: '#88888833' },
   resultText: { fontSize: 15, fontWeight: '800' },
 });
