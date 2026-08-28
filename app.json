@@ -8,6 +8,9 @@
     "scheme": "letsliinger",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.letsliinger.LetsLiinger",
+      "buildNumber": "1",
+      "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "LetsLiinger uses your location to show events happening near you and to place event pins on the campus map. You can decline and still use the app.",
         "NSPhotoLibraryUsageDescription": "LetsLiinger needs access to your photos so you can set a profile picture and add a cover image to your events.",

@@ -11,9 +11,10 @@ export const APP_NAME = 'LetsLiinger';
 export const SUPPORT_EMAIL = 'letsliinger@gmail.com';
 export const EFFECTIVE_DATE = 'August 12, 2026';
 
-// TODO: replace with the real hosted pages before store submission.
-export const TERMS_URL = 'https://letsliinger.example.com/terms';
-export const PRIVACY_URL = 'https://letsliinger.example.com/privacy';
+// Hosted pages live in /docs (served by GitHub Pages). Enable Pages on the
+// repo (Settings → Pages → deploy from `main` /docs) to make these live.
+export const TERMS_URL = 'https://albertw09.github.io/lets-liinger/terms.html';
+export const PRIVACY_URL = 'https://albertw09.github.io/lets-liinger/privacy.html';
 
 export const TERMS_TEXT = `${APP_NAME} — Terms of Service & End User License Agreement
 
