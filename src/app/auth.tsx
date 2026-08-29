@@ -123,7 +123,7 @@ export default function AuthScreen() {
             See what&apos;s happenin
           </ThemedText>
 
-          <TextField label="Email" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" value={email} onChangeText={setEmail} />
+          <TextField label="Email" placeholder="you@school.edu" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" value={email} onChangeText={setEmail} />
           <TextField label="Password" secureTextEntry value={password} onChangeText={setPassword} />
 
           <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotRow}>
@@ -176,6 +176,10 @@ export default function AuthScreen() {
           >
             <ThemedText style={styles.buttonText}>{loading ? '...' : 'Sign In'}</ThemedText>
           </ShadowSurface>
+
+          <ThemedText style={styles.schoolNote} themeColor="textSecondary">
+            New here? Sign up with your school email — LetsLiinger is students only.
+          </ThemedText>
 
           <ShadowSurface
             backgroundColor={colors.accentCyan}
@@ -254,7 +258,8 @@ const styles = StyleSheet.create({
   link: { fontWeight: '900', textDecorationLine: 'underline' },
   btn: { paddingVertical: Spacing.three, alignItems: 'center' },
   signInShadow: { marginTop: Spacing.five },
-  signUpShadow: { marginTop: Spacing.three },
+  schoolNote: { fontSize: 12, fontWeight: '700', textAlign: 'center', marginTop: Spacing.four },
+  signUpShadow: { marginTop: Spacing.two },
   buttonText: { fontWeight: '900', color: '#000', fontSize: 14 },
   error: { color: '#ff6b6b', fontWeight: '700', marginTop: Spacing.three, textAlign: 'center' },
   info: { fontWeight: '700', marginTop: Spacing.three, textAlign: 'center' },
