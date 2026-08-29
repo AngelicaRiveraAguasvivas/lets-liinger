@@ -22,6 +22,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { deleteAccount } from '../lib/account';
 import { isModerator } from '../lib/moderation';
 import { disablePush, enablePush, getPushEnabled } from '../lib/push';
+import { getBlockedProfiles, getPrivacy, setPrivacy } from '../lib/settings';
 import { supabase } from '../supabaseClient';
 
 export default function SettingsScreen() {
@@ -44,6 +45,15 @@ export default function SettingsScreen() {
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailNote, setEmailNote] = useState('');
 
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [blockedCount, setBlockedCount] = useState(0);
+
+  const [pwModalVisible, setPwModalVisible] = useState(false);
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwNote, setPwNote] = useState('');
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -51,10 +61,14 @@ export default function SettingsScreen() {
       if (user && !cancelled) {
         setSelfId(user.id);
         setCurrentEmail(user.email ?? '');
-        const [mod, push] = await Promise.all([isModerator(user.id), getPushEnabled(user.id)]);
+        const [mod, push, priv, blk] = await Promise.all([
+          isModerator(user.id), getPushEnabled(user.id), getPrivacy(user.id), getBlockedProfiles(user.id),
+        ]);
         if (!cancelled) {
           setModerator(mod);
           setPushEnabled(push);
+          setIsPrivate(priv);
+          setBlockedCount(blk.length);
         }
       }
     })();
@@ -76,6 +90,25 @@ export default function SettingsScreen() {
       return;
     }
     setEmailNote('Confirmation links sent — check both your old and new email to finish.');
+  }
+
+  async function handleTogglePrivacy(next: boolean) {
+    if (!selfId) return;
+    setIsPrivate(next); // optimistic
+    await setPrivacy(selfId, next);
+  }
+
+  async function handleChangePassword() {
+    setPwNote('');
+    if (newPw.length < 6) { setPwNote('Password must be at least 6 characters.'); return; }
+    if (newPw !== confirmPw) { setPwNote('Passwords do not match.'); return; }
+    setPwBusy(true);
+    const { error } = await supabase.auth.updateUser({ password: newPw });
+    setPwBusy(false);
+    if (error) { setPwNote(error.message); return; }
+    setPwNote('Password updated!');
+    setNewPw(''); setConfirmPw('');
+    setTimeout(() => setPwModalVisible(false), 1200);
   }
 
   async function handleTogglePush(next: boolean) {
@@ -141,12 +174,44 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
+          <TouchableOpacity style={dynamicStyles.row} onPress={() => { setPwNote(''); setNewPw(''); setConfirmPw(''); setPwModalVisible(true); }}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="key-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Change password</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => { setEmailNote(''); setNewEmail(''); setEmailModalVisible(true); }}>
             <View style={styles.rowLeft}>
               <Ionicons name="mail-outline" size={20} color={colors.text} />
               <ThemedText style={styles.rowLabel}>Change email</ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <View style={dynamicStyles.row}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="lock-closed-outline" size={20} color={colors.text} />
+              <View style={styles.rowTextWrap}>
+                <ThemedText style={styles.rowLabel}>Private account</ThemedText>
+                <ThemedText style={styles.rowSub} themeColor="textSecondary">Only followers see your events &amp; activity</ThemedText>
+              </View>
+            </View>
+            <Switch
+              value={isPrivate}
+              onValueChange={handleTogglePrivacy}
+              trackColor={{ true: colors.accentGreen, false: colors.border }}
+              thumbColor="#fff"
+            />
+          </View>
+          <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/blocked')}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="ban-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Blocked accounts</ThemedText>
+            </View>
+            <View style={styles.rowRight}>
+              {blockedCount > 0 ? <ThemedText style={styles.rowValue} themeColor="textSecondary">{blockedCount}</ThemedText> : null}
+              <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+            </View>
           </TouchableOpacity>
           <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={handleLogOut}>
             <View style={styles.rowLeft}>
@@ -160,6 +225,13 @@ export default function SettingsScreen() {
         {/* Notifications */}
         <ThemedText style={styles.sectionTitle}>NOTIFICATIONS</ThemedText>
         <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
+          <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/notification-settings')}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="options-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Notification settings</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
           <View style={[dynamicStyles.row, styles.lastRow]}>
             <View style={styles.rowLeft}>
               <Ionicons name="notifications-outline" size={20} color={colors.text} />
@@ -305,6 +377,32 @@ export default function SettingsScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Change password */}
+      <Modal visible={pwModalVisible} transparent animationType="fade" onRequestClose={() => setPwModalVisible(false)}>
+        <Pressable style={styles.backdrop} onPress={() => !pwBusy && setPwModalVisible(false)}>
+          <Pressable onPress={() => {}}>
+            <ShadowSurface backgroundColor={colors.backgroundElement} radius={20} offset={5} wrapperStyle={styles.confirmShadow} style={styles.confirmCard}>
+              <ThemedText style={styles.confirmTitle}>Change password</ThemedText>
+              <TextField label="New password" secureTextEntry value={newPw} onChangeText={setNewPw} />
+              <TextField label="Confirm new password" secureTextEntry value={confirmPw} onChangeText={setConfirmPw} />
+              {pwNote ? <ThemedText style={styles.hint} themeColor="accentCyan">{pwNote}</ThemedText> : null}
+              <ShadowSurface
+                backgroundColor={colors.accentYellow}
+                radius={12} offset={3}
+                wrapperStyle={styles.confirmDeleteShadow} style={styles.confirmDeleteBtn}
+                onPress={pwBusy ? undefined : handleChangePassword}
+                disabled={pwBusy}
+              >
+                {pwBusy ? <ActivityIndicator color="#000" /> : <ThemedText style={styles.deleteBtnText}>Update password</ThemedText>}
+              </ShadowSurface>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => !pwBusy && setPwModalVisible(false)} disabled={pwBusy}>
+                <ThemedText style={styles.cancelText}>Close</ThemedText>
+              </TouchableOpacity>
+            </ShadowSurface>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -315,7 +413,11 @@ const styles = StyleSheet.create({
   cardShadow: { marginBottom: Spacing.one },
   card: { overflow: 'hidden' },
   lastRow: { borderBottomWidth: 0 },
-  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, flex: 1, marginRight: Spacing.two },
+  rowTextWrap: { flex: 1 },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
+  rowValue: { fontSize: 14, fontWeight: '800' },
+  rowSub: { fontSize: 11, fontWeight: '600', marginTop: 1 },
   rowLabel: { fontSize: 15, fontWeight: '800' },
   chevron: { fontSize: 20, fontWeight: '900' },
   deleteShadow: { marginTop: Spacing.two },

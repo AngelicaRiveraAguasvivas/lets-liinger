@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient';
 import type { PublicProfile } from './follows';
 import { getFollowerNotifications, getNotificationsSeenAt, getUnreadFollowerCount } from './follows';
+import { getNotificationPrefs } from './settings';
 
 // ---- "Last seen" markers (power the tab-bar dots) -----------------------
 //
@@ -15,6 +16,8 @@ async function getSeen(userId: string, column: 'messages_seen_at' | 'events_seen
 
 // Count of DMs I've received since I last opened the inbox.
 export async function getUnreadMessageCount(userId: string): Promise<number> {
+  const prefs = await getNotificationPrefs(userId);
+  if (prefs.paused || !prefs.messages) return 0;
   const seenAt = await getSeen(userId, 'messages_seen_at');
   let req = supabase
     .from('direct_messages')
@@ -31,6 +34,8 @@ export async function markMessagesSeen(userId: string): Promise<void> {
 
 // Count of events created by other people since I last opened the home feed.
 export async function getNewEventCount(userId: string): Promise<number> {
+  const prefs = await getNotificationPrefs(userId);
+  if (prefs.paused || !prefs.new_events) return 0;
   const seenAt = await getSeen(userId, 'events_seen_at');
   let req = supabase
     .from('events')
@@ -168,9 +173,11 @@ async function getUnreadEngagementCount(userId: string): Promise<number> {
 // Total unread for the notifications bell: new followers + engagement on my
 // events, since I last opened the notifications screen.
 export async function getUnreadNotificationCount(userId: string): Promise<number> {
+  const prefs = await getNotificationPrefs(userId);
+  if (prefs.paused) return 0;
   const [follows, engagement] = await Promise.all([
-    getUnreadFollowerCount(userId),
-    getUnreadEngagementCount(userId),
+    prefs.follows ? getUnreadFollowerCount(userId) : Promise.resolve(0),
+    prefs.engagement ? getUnreadEngagementCount(userId) : Promise.resolve(0),
   ]);
   return follows + engagement;
 }
@@ -178,11 +185,14 @@ export async function getUnreadNotificationCount(userId: string): Promise<number
 // Everything, newest first — follows + received messages + new events +
 // engagement on my own events.
 export async function getAllNotifications(userId: string): Promise<NotificationItem[]> {
+  const prefs = await getNotificationPrefs(userId);
+  if (prefs.paused) return [];
+
   const [follows, messages, events, engagement] = await Promise.all([
-    getFollowerNotifications(userId),
-    getMessageNotifications(userId),
-    getEventNotifications(userId),
-    getEngagementNotifications(userId),
+    prefs.follows ? getFollowerNotifications(userId) : Promise.resolve([]),
+    prefs.messages ? getMessageNotifications(userId) : Promise.resolve([]),
+    prefs.new_events ? getEventNotifications(userId) : Promise.resolve([]),
+    prefs.engagement ? getEngagementNotifications(userId) : Promise.resolve([]),
   ]);
 
   const followItems: NotificationItem[] = follows.map((f) => ({

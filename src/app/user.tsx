@@ -26,6 +26,7 @@ interface ViewProfile {
   minor: string | null;
   grad_year: string | null;
   cohort: string | null;
+  is_private: boolean | null;
 }
 
 export default function UserProfileScreen() {
@@ -61,7 +62,7 @@ export default function UserProfileScreen() {
         setSelfId(user?.id ?? null);
 
         const [profRes, c, isF, mut, myBlocked] = await Promise.all([
-          supabase.from('profiles').select('id, display_name, username, bio, avatar_url, interests, extracurriculars, university, major, minor, grad_year, cohort').eq('id', id).single(),
+          supabase.from('profiles').select('id, display_name, username, bio, avatar_url, interests, extracurriculars, university, major, minor, grad_year, cohort, is_private').eq('id', id).single(),
           getFollowCounts(id),
           user ? checkFollowing(user.id, id) : Promise.resolve(false),
           user ? getMutualFollowers(user.id, id) : Promise.resolve({ names: [], count: 0 }),
@@ -265,7 +266,11 @@ export default function UserProfileScreen() {
           </>
         )}
 
-        {hosting.length > 0 && (
+        {profile.is_private && !following && (
+          <ThemedText style={[styles.section, { color: colors.text }]}>This account is private — follow to see their events.</ThemedText>
+        )}
+
+        {(!profile.is_private || following) && hosting.length > 0 && (
           <>
             <ThemedText style={[styles.section, { color: colors.text }]}>HOSTING</ThemedText>
             {hosting.map((e) => (
@@ -282,7 +287,7 @@ export default function UserProfileScreen() {
           </>
         )}
 
-        {going.length > 0 && (
+        {(!profile.is_private || following) && going.length > 0 && (
           <>
             <ThemedText style={[styles.section, { color: colors.text }]}>GOING TO</ThemedText>
             {going.map((e) => (
