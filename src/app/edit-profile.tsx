@@ -38,7 +38,6 @@ export default function EditProfileScreen() {
   const [major, setMajor] = useState('');
   const [minor, setMinor] = useState('');
   const [gradYear, setGradYear] = useState('');
-  const [cohort, setCohort] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarMenuVisible, setAvatarMenuVisible] = useState(false);
@@ -74,7 +73,6 @@ export default function EditProfileScreen() {
         setMajor(data.major ?? '');
         setMinor(data.minor ?? '');
         setGradYear(data.grad_year ?? '');
-        setCohort(data.cohort ?? '');
         setAvatarUrl(data.avatar_url ?? null);
         setInterests(data.interests ?? []);
         setExtracurriculars(data.extracurriculars ?? []);
@@ -126,6 +124,18 @@ export default function EditProfileScreen() {
       setErrorMsg('Please pick a username.');
       return;
     }
+    if (!university.trim()) {
+      setErrorMsg('Please select your university.');
+      return;
+    }
+    if (!gradYear.trim()) {
+      setErrorMsg('Please enter your graduation year.');
+      return;
+    }
+    if (!major.trim()) {
+      setErrorMsg('Please enter your major.');
+      return;
+    }
 
     setSaving(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -145,7 +155,7 @@ export default function EditProfileScreen() {
         major: major.trim() || null,
         minor: minor.trim() || null,
         grad_year: gradYear.trim() || null,
-        cohort: cohort.trim() || null,
+        cohort: null,
         avatar_url: avatarUrl,
         interests,
         extracurriculars,
@@ -235,13 +245,10 @@ export default function EditProfileScreen() {
         <ThemedText style={styles.counter}>{bio.length}/160</ThemedText>
 
         <SchoolPicker value={university} onChange={setUniversity} />
-        <View style={styles.row2}>
-          <TextField containerStyle={styles.flex1} label="Grad year" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
-          <TextField containerStyle={styles.flex1} label="Cohort" value={cohort} onChangeText={setCohort} />
-        </View>
+        <TextField label="Grad year" placeholder="2028" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
         <View style={styles.row2}>
           <TextField containerStyle={styles.flex1} label="Major" value={major} onChangeText={setMajor} />
-          <TextField containerStyle={styles.flex1} label="Minor" value={minor} onChangeText={setMinor} />
+          <TextField containerStyle={styles.flex1} label="Minor (optional)" value={minor} onChangeText={setMinor} />
         </View>
 
         <ThemedText style={styles.label} themeColor="accentCyan">What are you into?</ThemedText>

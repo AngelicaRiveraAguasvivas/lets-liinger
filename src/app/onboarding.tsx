@@ -36,7 +36,6 @@ export default function OnboardingScreen() {
   const [major, setMajor] = useState('');
   const [minor, setMinor] = useState('');
   const [gradYear, setGradYear] = useState('');
-  const [cohort, setCohort] = useState('');
   const [interests, setInterests] = useState<string[]>([]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -89,6 +88,18 @@ export default function OnboardingScreen() {
       setErrorMsg('Please pick a username.');
       return;
     }
+    if (!university.trim()) {
+      setErrorMsg('Please select your university.');
+      return;
+    }
+    if (!gradYear.trim()) {
+      setErrorMsg('Please enter your graduation year.');
+      return;
+    }
+    if (!major.trim()) {
+      setErrorMsg('Please enter your major.');
+      return;
+    }
     const badWord = checkClean(`${displayName} ${username} ${bio}`);
     if (badWord) {
       setErrorMsg(badWord);
@@ -114,7 +125,7 @@ export default function OnboardingScreen() {
         major: major.trim() || null,
         minor: minor.trim() || null,
         grad_year: gradYear.trim() || null,
-        cohort: cohort.trim() || null,
+        cohort: null,
         avatar_url: avatarUrl,
         interests,
         extracurriculars: myClubs.map(name => ({ name, role: 'Member' })),
@@ -203,8 +214,6 @@ export default function OnboardingScreen() {
         />
         <ThemedText style={styles.counter} themeColor="textSecondary">{bio.length}/160</ThemedText>
 
-        <ThemedText style={styles.label} themeColor="accentCyan">School</ThemedText>
-        <ThemedText style={styles.hint} themeColor="textSecondary">So classmates can find their people. All optional.</ThemedText>
         {schoolLocked ? (
           <>
             <ThemedText style={styles.label} themeColor="accentCyan">University</ThemedText>
@@ -216,13 +225,10 @@ export default function OnboardingScreen() {
         ) : (
           <SchoolPicker value={university} onChange={setUniversity} />
         )}
-        <View style={styles.row2}>
-          <TextField containerStyle={styles.flex1} label="Grad year" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
-          <TextField containerStyle={styles.flex1} label="Cohort" value={cohort} onChangeText={setCohort} />
-        </View>
+        <TextField label="Grad year" placeholder="2028" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
         <View style={styles.row2}>
           <TextField containerStyle={styles.flex1} label="Major" value={major} onChangeText={setMajor} />
-          <TextField containerStyle={styles.flex1} label="Minor" value={minor} onChangeText={setMinor} />
+          <TextField containerStyle={styles.flex1} label="Minor (optional)" value={minor} onChangeText={setMinor} />
         </View>
 
         <ThemedText style={styles.label} themeColor="accentCyan">What are you into?</ThemedText>
