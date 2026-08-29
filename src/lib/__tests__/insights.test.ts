@@ -41,6 +41,9 @@ describe('fetchCreatorInsights', () => {
       avgRsvps: 0,
       topEvent: null,
       events: [],
+      byClub: [],
+      byCategory: [],
+      audience: { total: 0, schools: [], years: [], interests: [] },
     });
     // Should short-circuit and not query rsvps/likes/comments at all.
     expect(mockFrom).toHaveBeenCalledTimes(1);
@@ -119,7 +122,7 @@ describe('fetchCreatorInsights', () => {
     const result = await fetchCreatorInsights('creator-1');
 
     expect(result.events).toEqual([
-      { id: 'e1', title: 'Quiet event', eventTime: null, rsvps: 0, likes: 0, comments: 0, engagement: 0 },
+      { id: 'e1', title: 'Quiet event', eventTime: null, host: null, category: null, rsvps: 0, likes: 0, comments: 0, engagement: 0 },
     ]);
     expect(result.topEvent).toEqual(result.events[0]);
     expect(result.avgRsvps).toBe(0);

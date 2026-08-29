@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { CreatorInsights, EventStat, fetchCreatorInsights } from '../lib/insights';
+import { categoryColor, categoryLabel } from '@/lib/categories';
+import { CreatorInsights, fetchCreatorInsights } from '../lib/insights';
 import { supabase } from '../supabaseClient';
 
 export default function InsightsScreen() {
@@ -17,6 +18,7 @@ export default function InsightsScreen() {
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<CreatorInsights | null>(null);
+  const [selectedClub, setSelectedClub] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -38,7 +40,24 @@ export default function InsightsScreen() {
 
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const accents = [colors.accentPink, colors.accentCyan, colors.accentYellow, colors.accentGreen];
-  const maxRsvps = Math.max(1, ...(data?.events.map((e) => e.rsvps) ?? [0]));
+
+  // When a club is selected, the event lists below scope to just its events.
+  const clubEventIds = selectedClub
+    ? new Set(data?.byClub.find((c) => c.name === selectedClub)?.eventIds ?? [])
+    : null;
+  const shownEvents = clubEventIds
+    ? (data?.events ?? []).filter((e) => clubEventIds.has(e.id))
+    : (data?.events ?? []);
+  const maxRsvps = Math.max(1, ...shownEvents.map((e) => e.rsvps), 0);
+
+  function audienceLine(a: CreatorInsights['audience']): string {
+    if (a.total === 0) return 'No one has engaged yet — share your events!';
+    const parts: string[] = [];
+    if (a.schools[0]) parts.push(`${a.schools[0].pct}% ${a.schools[0].name}`);
+    if (a.years[0]) parts.push(`mostly Class of ${a.years[0].year}`);
+    if (a.interests[0]) parts.push(`into ${a.interests[0].tag}`);
+    return parts.length ? parts.join(' · ') : `${a.total} people engaged`;
+  }
 
   function hookLine(d: CreatorInsights): string {
     if (d.totalEngagement === 0) return 'Share your events to start pulling a crowd.';
@@ -102,6 +121,69 @@ export default function InsightsScreen() {
               You average {plural(data.avgRsvps, 'RSVP')} per event.
             </ThemedText>
 
+            {/* Your crowd (audience) */}
+            <ThemedText style={[styles.sectionTitle, { color: colors.text }]}>YOUR CROWD</ThemedText>
+            <ShadowSurface backgroundColor={colors.accentCyan} radius={16} offset={4} wrapperStyle={styles.mb3} style={styles.crowdCard}>
+              <ThemedText style={styles.crowdLine}>{audienceLine(data.audience)}</ThemedText>
+              {data.audience.total > 0 && (
+                <View style={styles.crowdChips}>
+                  {data.audience.interests.slice(0, 4).map((i) => (
+                    <View key={i.tag} style={styles.crowdChip}>
+                      <ThemedText style={styles.crowdChipText}>{i.tag} · {i.count}</ThemedText>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ShadowSurface>
+
+            {/* By category */}
+            {data.byCategory.length > 0 && (
+              <>
+                <ThemedText style={[styles.sectionTitle, { color: colors.text }]}>BY CATEGORY</ThemedText>
+                <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} wrapperStyle={styles.mb3}>
+                  <View style={styles.catCard}>
+                    {data.byCategory.map((c) => (
+                      <View key={c.key || 'none'} style={styles.catRow}>
+                        <View style={[styles.catDot, { backgroundColor: categoryColor(c.key), borderColor: colors.border }]} />
+                        <ThemedText style={styles.catName}>{categoryLabel(c.key) ?? 'Uncategorized'}</ThemedText>
+                        <ThemedText style={styles.catMeta} themeColor="textSecondary">
+                          {plural(c.events, 'event')} · {c.rsvps} RSVPs
+                        </ThemedText>
+                      </View>
+                    ))}
+                  </View>
+                </ShadowSurface>
+              </>
+            )}
+
+            {/* By club / org — tap to filter the events below */}
+            {data.byClub.length > 0 && (
+              <>
+                <ThemedText style={[styles.sectionTitle, { color: colors.text }]}>BY CLUB / ORG</ThemedText>
+                <ThemedText style={styles.hint} themeColor="textSecondary">Tap a club to see just its events below.</ThemedText>
+                {data.byClub.map((c) => {
+                  const on = selectedClub === c.name;
+                  return (
+                    <ShadowSurface
+                      key={c.name}
+                      backgroundColor={on ? colors.accentGreen : colors.backgroundElement}
+                      radius={14} offset={3} borderWidth={2}
+                      wrapperStyle={styles.mb2} style={styles.clubCard}
+                      onPress={() => setSelectedClub(on ? null : c.name)}
+                    >
+                      <View style={styles.rowTop}>
+                        <ThemedText style={[styles.clubName, on && { color: '#000' }]} numberOfLines={1}>{c.name}</ThemedText>
+                        <Badge label={`${c.engagement}`} backgroundColor={on ? colors.background : colors.accentGreen} />
+                      </View>
+                      <ThemedText style={[styles.clubMeta, on && { color: '#000' }]}>
+                        {plural(c.events, 'event')} · {c.rsvps} RSVPs · {c.likes} likes · {c.comments} comments
+                      </ThemedText>
+                    </ShadowSurface>
+                  );
+                })}
+              </>
+            )}
+
             {/* Top event */}
             {data.topEvent && data.topEvent.rsvps > 0 && (
               <>
@@ -122,11 +204,20 @@ export default function InsightsScreen() {
               </>
             )}
 
-            {/* RSVPs per event bar chart */}
-            <ThemedText style={[styles.sectionTitle, { color: colors.text }]}>RSVPS BY EVENT</ThemedText>
+            {/* RSVPs per event bar chart (scoped to the selected club) */}
+            <View style={styles.sectionHeaderRow}>
+              <ThemedText style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>
+                {selectedClub ? `${selectedClub.toUpperCase()} · EVENTS` : 'RSVPS BY EVENT'}
+              </ThemedText>
+              {selectedClub ? (
+                <TouchableOpacity onPress={() => setSelectedClub(null)}>
+                  <ThemedText style={[styles.clearFilter, { color: colors.accentPink }]}>✕ clear</ThemedText>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} wrapperStyle={styles.mb3}>
               <View style={styles.chartCard}>
-                {[...data.events]
+                {[...shownEvents]
                   .sort((a, b) => b.rsvps - a.rsvps)
                   .map((e, idx) => (
                     <View key={e.id} style={styles.barRow}>
@@ -149,7 +240,7 @@ export default function InsightsScreen() {
 
             {/* Full breakdown */}
             <ThemedText style={[styles.sectionTitle, { color: colors.text }]}>ENGAGEMENT BREAKDOWN</ThemedText>
-            {data.events.map((e) => (
+            {shownEvents.map((e) => (
               <ShadowSurface
                 key={e.id}
                 backgroundColor={colors.backgroundElement}
@@ -218,6 +309,25 @@ const styles = StyleSheet.create({
   tileLabel: { fontSize: 10, fontWeight: '800', opacity: 0.6, letterSpacing: 0.5 },
   avgLine: { fontSize: 13, fontWeight: '700', marginTop: Spacing.one, marginBottom: Spacing.three },
   sectionTitle: { fontWeight: '900', fontSize: 15, letterSpacing: 0.5, marginBottom: Spacing.two },
+  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.two },
+  clearFilter: { fontSize: 12, fontWeight: '900' },
+  hint: { fontSize: 12, fontWeight: '600', marginTop: -Spacing.one, marginBottom: Spacing.two },
+  // your crowd
+  crowdCard: { padding: Spacing.three },
+  crowdLine: { fontSize: 15, fontWeight: '900', color: '#000' },
+  crowdChips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one, marginTop: Spacing.two },
+  crowdChip: { backgroundColor: '#00000022', borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: 2 },
+  crowdChipText: { fontSize: 11, fontWeight: '800', color: '#000' },
+  // by category
+  catCard: { padding: Spacing.three, gap: Spacing.two },
+  catRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  catDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1 },
+  catName: { fontSize: 14, fontWeight: '900', flex: 1 },
+  catMeta: { fontSize: 12, fontWeight: '700' },
+  // by club
+  clubCard: { padding: Spacing.three },
+  clubName: { fontSize: 15, fontWeight: '900', flex: 1, marginRight: Spacing.two },
+  clubMeta: { fontSize: 12, fontWeight: '700', marginTop: 2, opacity: 0.85 },
   // top event
   topCard: { padding: Spacing.three },
   topTitle: { fontSize: 18, fontWeight: '900', color: '#000' },
