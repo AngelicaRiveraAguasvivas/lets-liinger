@@ -17,6 +17,7 @@ import { TextField } from '@/components/ui/text-field';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { PRIVACY_TEXT, TERMS_TEXT } from '../lib/legal';
+import { resolveSchoolFromEmail } from '../lib/school-auth';
 import { supabase } from '../supabaseClient';
 
 export default function AuthScreen() {
@@ -47,6 +48,17 @@ export default function AuthScreen() {
     }
 
     setLoading(true);
+
+    // Students-only gate: only school emails may create an account, and the
+    // school is derived from the (verified) email domain — no self-reporting.
+    const resolution = await resolveSchoolFromEmail(email);
+    if (resolution.status === 'rejected') {
+      setErrorMsg(resolution.message);
+      setLoading(false);
+      return;
+    }
+    const school = resolution.status === 'known' ? resolution.school : null;
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -54,6 +66,8 @@ export default function AuthScreen() {
         data: {
           age_confirmed: true,
           terms_accepted_at: new Date().toISOString(),
+          school,
+          school_locked: resolution.status === 'known',
         },
       },
     });

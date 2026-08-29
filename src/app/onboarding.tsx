@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator, Image, ScrollView, StyleSheet, TouchableOpacity, View,
 } from 'react-native';
@@ -32,6 +32,7 @@ export default function OnboardingScreen() {
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [university, setUniversity] = useState('');
+  const [schoolLocked, setSchoolLocked] = useState(false);
   const [major, setMajor] = useState('');
   const [minor, setMinor] = useState('');
   const [gradYear, setGradYear] = useState('');
@@ -41,6 +42,17 @@ export default function OnboardingScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarMenuVisible, setAvatarMenuVisible] = useState(false);
   const [myClubs, setMyClubs] = useState<string[]>([]);
+
+  // The school is derived from the verified email at sign-up; pre-fill it and
+  // lock it so it can't be changed to a school you don't actually attend.
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const meta = (user?.user_metadata ?? {}) as any;
+      if (meta.school) setUniversity(meta.school);
+      if (meta.school_locked) setSchoolLocked(true);
+    })();
+  }, []);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -193,7 +205,17 @@ export default function OnboardingScreen() {
 
         <ThemedText style={styles.label} themeColor="accentCyan">School</ThemedText>
         <ThemedText style={styles.hint} themeColor="textSecondary">So classmates can find their people. All optional.</ThemedText>
-        <SchoolPicker value={university} onChange={setUniversity} />
+        {schoolLocked ? (
+          <>
+            <ThemedText style={styles.label} themeColor="accentCyan">University</ThemedText>
+            <View style={[styles.lockedField, { borderColor: colors.border, backgroundColor: colors.backgroundElement }]}>
+              <ThemedText style={styles.lockedText}>{university}</ThemedText>
+              <ThemedText style={styles.lockedNote} themeColor="textSecondary">Verified from your school email</ThemedText>
+            </View>
+          </>
+        ) : (
+          <SchoolPicker value={university} onChange={setUniversity} />
+        )}
         <View style={styles.row2}>
           <TextField containerStyle={styles.flex1} label="Grad year" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
           <TextField containerStyle={styles.flex1} label="Cohort" value={cohort} onChangeText={setCohort} />
@@ -255,6 +277,9 @@ const styles = StyleSheet.create({
   at: { fontSize: 20, fontWeight: '900', marginRight: Spacing.two },
   flex1: { flex: 1 },
   row2: { flexDirection: 'row', gap: Spacing.two },
+  lockedField: { borderWidth: 2, borderRadius: 12, padding: Spacing.three },
+  lockedText: { fontSize: 15, fontWeight: '800' },
+  lockedNote: { fontSize: 11, fontWeight: '700', marginTop: 2 },
   bioInput: { height: 90, textAlignVertical: 'top' },
   counter: { fontSize: 11, textAlign: 'right', marginTop: Spacing.one },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginBottom: Spacing.two },
