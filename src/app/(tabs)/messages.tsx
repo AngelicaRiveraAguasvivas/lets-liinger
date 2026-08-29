@@ -134,7 +134,7 @@ export default function MessagesScreen() {
               onPress={() => router.push(`/dm-thread?userId=${c.otherUserId}`)}
             >
               <View style={styles.cardRow}>
-                <AvatarBubble url={c.otherProfile?.avatar_url} name={profileLabel(c.otherProfile)} size={44} />
+                <AvatarBubble url={c.otherProfile?.avatar_url} name={profileLabel(c.otherProfile)} size={44} userId={c.otherUserId} />
                 <View style={styles.cardBody}>
                   <View style={styles.cardTopRow}>
                     <ThemedText style={styles.cardName} numberOfLines={1}>
@@ -180,7 +180,7 @@ export default function MessagesScreen() {
             <ScrollView style={styles.resultsList} keyboardShouldPersistTaps="handled">
               {searchResults.map((p) => (
                 <TouchableOpacity key={p.id} style={styles.resultRow} onPress={() => startConversationWith(p.id)}>
-                  <AvatarBubble url={p.avatar_url} name={profileLabel(p)} size={32} />
+                  <AvatarBubble url={p.avatar_url} name={profileLabel(p)} size={32} userId={p.id} />
                   <ThemedText style={styles.resultText}>{profileLabel(p)}</ThemedText>
                 </TouchableOpacity>
               ))}

@@ -477,14 +477,14 @@ export default function HomeScreen() {
             style={[styles.scopeChip, { borderColor: colors.border, backgroundColor: scope === 'mine' ? colors.accentGreen : 'transparent', opacity: myUniversity ? 1 : 0.4 }]}
           >
             <ThemedText style={[styles.scopeText, scope === 'mine' && { color: '#000' }]}>
-              🏫 {myUniversity ? 'My school' : 'Set your school'}
+              {myUniversity ? 'My school' : 'Set your school'}
             </ThemedText>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setScope('all')}
             style={[styles.scopeChip, { borderColor: colors.border, backgroundColor: scope === 'all' ? colors.accentCyan : 'transparent' }]}
           >
-            <ThemedText style={[styles.scopeText, scope === 'all' && { color: '#000' }]}>🌎 All schools</ThemedText>
+            <ThemedText style={[styles.scopeText, scope === 'all' && { color: '#000' }]}>All schools</ThemedText>
           </TouchableOpacity>
         </View>
 
@@ -529,7 +529,6 @@ export default function HomeScreen() {
           </View>
         ) : visibleEvents.length === 0 ? (
           <EmptyState
-            emoji={categoryFilter || followingOnly ? '🔍' : '📅'}
             title={
               categoryFilter
                 ? 'No events in this category'

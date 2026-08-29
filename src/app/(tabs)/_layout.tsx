@@ -33,11 +33,10 @@ export default function TabLayout() {
   const { hasUnreadMessages, hasNewEvents } = useNotifications();
 
   return (
-    <Tabs screenOptions={{ headerShown: false }}>
+    <Tabs screenOptions={{ headerShown: false, tabBarShowLabel: false }}>
       <Tabs.Screen
         name="index"
         options={{
-          tabBarLabel: 'home',
           tabBarIcon: () => (
             <TabIcon source={require('@/assets/images/tabIcons/home.png')} showDot={hasNewEvents} />
           ),

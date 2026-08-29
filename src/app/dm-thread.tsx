@@ -38,8 +38,9 @@ function academicLine(p: ProfileLite | null): string {
   return parts.join(' · ');
 }
 
-function Avatar({ url, letter, borderColor, bg }: { url?: string | null; letter: string; borderColor: string; bg: string }) {
-  return (
+function Avatar({ url, letter, borderColor, bg, userId }: { url?: string | null; letter: string; borderColor: string; bg: string; userId?: string | null }) {
+  const router = useRouter();
+  const circle = (
     <View style={[styles.avatar, { borderColor, backgroundColor: bg }]}>
       {url ? (
         <Image source={{ uri: url }} style={styles.avatarImg} resizeMode="cover" />
@@ -48,6 +49,8 @@ function Avatar({ url, letter, borderColor, bg }: { url?: string | null; letter:
       )}
     </View>
   );
+  if (!userId) return circle;
+  return <Pressable onPress={() => router.push(`/user?id=${userId}`)} hitSlop={4}>{circle}</Pressable>;
 }
 
 export default function DmThreadScreen() {
@@ -297,7 +300,7 @@ function MessageBubble({
   }
 
   const avatar = (
-    <Avatar url={avatarUrl} letter={avatarLetter} borderColor={colors.border} bg={mine ? colors.accentCyan : colors.accentYellow} />
+    <Avatar url={avatarUrl} letter={avatarLetter} borderColor={colors.border} bg={mine ? colors.accentCyan : colors.accentYellow} userId={message.sender_id} />
   );
 
   return (

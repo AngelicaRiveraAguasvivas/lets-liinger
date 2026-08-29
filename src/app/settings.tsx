@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Ionicons } from '@expo/vector-icons';
+
 import { ThemedText } from '@/components/themed-text';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { TextField } from '@/components/ui/text-field';
@@ -133,16 +135,25 @@ export default function SettingsScreen() {
         <ThemedText style={styles.sectionTitle}>ACCOUNT</ThemedText>
         <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/edit-profile')}>
-            <ThemedText style={styles.rowLabel}>Edit profile</ThemedText>
-            <ThemedText style={styles.chevron} themeColor="textSecondary">›</ThemedText>
+            <View style={styles.rowLeft}>
+              <Ionicons name="person-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Edit profile</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => { setEmailNote(''); setNewEmail(''); setEmailModalVisible(true); }}>
-            <ThemedText style={styles.rowLabel}>Change email</ThemedText>
-            <ThemedText style={styles.chevron} themeColor="textSecondary">›</ThemedText>
+            <View style={styles.rowLeft}>
+              <Ionicons name="mail-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Change email</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={handleLogOut}>
-            <ThemedText style={styles.rowLabel}>Log out</ThemedText>
-            <ThemedText style={styles.chevron} themeColor="textSecondary">›</ThemedText>
+            <View style={styles.rowLeft}>
+              <Ionicons name="log-out-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Log out</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         </ShadowSurface>
 
@@ -150,7 +161,10 @@ export default function SettingsScreen() {
         <ThemedText style={styles.sectionTitle}>NOTIFICATIONS</ThemedText>
         <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
           <View style={[dynamicStyles.row, styles.lastRow]}>
-            <ThemedText style={styles.rowLabel}>Push to my phone</ThemedText>
+            <View style={styles.rowLeft}>
+              <Ionicons name="notifications-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Push to my phone</ThemedText>
+            </View>
             {pushBusy ? (
               <ActivityIndicator color={colors.text} />
             ) : (
@@ -173,12 +187,18 @@ export default function SettingsScreen() {
         <ThemedText style={styles.sectionTitle}>LEGAL</ThemedText>
         <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/legal?doc=terms')}>
-            <ThemedText style={styles.rowLabel}>Terms of Service</ThemedText>
-            <ThemedText style={styles.chevron} themeColor="textSecondary">›</ThemedText>
+            <View style={styles.rowLeft}>
+              <Ionicons name="document-text-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Terms of Service</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={() => router.push('/legal?doc=privacy')}>
-            <ThemedText style={styles.rowLabel}>Privacy Policy</ThemedText>
-            <ThemedText style={styles.chevron} themeColor="textSecondary">›</ThemedText>
+            <View style={styles.rowLeft}>
+              <Ionicons name="lock-closed-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>Privacy Policy</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         </ShadowSurface>
 
@@ -188,8 +208,11 @@ export default function SettingsScreen() {
             <ThemedText style={styles.sectionTitle}>MODERATION</ThemedText>
             <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
               <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={() => router.push('/moderation')}>
-                <ThemedText style={styles.rowLabel}>Review reports</ThemedText>
-                <ThemedText style={styles.chevron} themeColor="textSecondary">›</ThemedText>
+                <View style={styles.rowLeft}>
+                  <Ionicons name="shield-checkmark-outline" size={20} color={colors.text} />
+                  <ThemedText style={styles.rowLabel}>Review reports</ThemedText>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
             </ShadowSurface>
           </>
@@ -292,6 +315,7 @@ const styles = StyleSheet.create({
   cardShadow: { marginBottom: Spacing.one },
   card: { overflow: 'hidden' },
   lastRow: { borderBottomWidth: 0 },
+  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   rowLabel: { fontSize: 15, fontWeight: '800' },
   chevron: { fontSize: 20, fontWeight: '900' },
   deleteShadow: { marginTop: Spacing.two },

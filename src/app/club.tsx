@@ -72,7 +72,7 @@ export default function ClubScreen() {
     headerText: { color: colors.text, fontFamily: 'ui-rounded', fontWeight: '900', fontSize: 22, letterSpacing: -1 },
   }), [colors]);
 
-  const emoji = club?.emoji || '🏷️';
+  const emoji = club?.emoji || clubName.charAt(0).toUpperCase() || '?';
 
   return (
     <SafeAreaView style={dynamicStyles.safe} edges={['top', 'left', 'right']}>

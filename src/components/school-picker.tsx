@@ -68,7 +68,7 @@ export function SchoolPicker({
               style={[styles.row, i < matches.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border }]}
               onPress={() => pick(s.name)}
             >
-              <ThemedText style={styles.rowText}>🎓 {s.name}</ThemedText>
+              <ThemedText style={styles.rowText}>{s.name}</ThemedText>
             </TouchableOpacity>
           ))}
           {!exact && (

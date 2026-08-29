@@ -270,13 +270,13 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
               style={[styles.visChip, { borderColor: theme.border, backgroundColor: visibility === 'school' ? theme.accentGreen : theme.backgroundElement }]}
               onPress={() => setVisibility('school')}
             >
-              <ThemedText style={[styles.visText, visibility === 'school' && { color: '#000' }]}>🏫 My school only</ThemedText>
+              <ThemedText style={[styles.visText, visibility === 'school' && { color: '#000' }]}>My school only</ThemedText>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.visChip, { borderColor: theme.border, backgroundColor: visibility === 'public' ? theme.accentCyan : theme.backgroundElement }]}
               onPress={() => setVisibility('public')}
             >
-              <ThemedText style={[styles.visText, visibility === 'public' && { color: '#000' }]}>🌎 Everyone</ThemedText>
+              <ThemedText style={[styles.visText, visibility === 'public' && { color: '#000' }]}>Everyone</ThemedText>
             </TouchableOpacity>
           </View>
 

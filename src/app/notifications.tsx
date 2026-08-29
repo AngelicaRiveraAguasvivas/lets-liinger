@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -75,8 +75,8 @@ export default function NotificationsScreen() {
     }
   }
 
-  function avatarFor(profile: { avatar_url: string | null } | null, name: string, bg: string) {
-    return (
+  function avatarFor(profile: { id?: string; avatar_url: string | null } | null, name: string, bg: string) {
+    const circle = (
       <View style={[styles.avatar, { borderColor: colors.border, backgroundColor: bg }]}>
         {profile?.avatar_url ? (
           <Image source={{ uri: profile.avatar_url }} style={styles.avatarImg} resizeMode="cover" />
@@ -85,6 +85,8 @@ export default function NotificationsScreen() {
         )}
       </View>
     );
+    if (!profile?.id) return circle;
+    return <Pressable onPress={() => router.push(`/user?id=${profile.id}`)} hitSlop={4}>{circle}</Pressable>;
   }
 
   function renderItem(it: NotificationItem) {
