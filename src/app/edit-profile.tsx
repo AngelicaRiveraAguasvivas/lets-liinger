@@ -16,6 +16,7 @@ import { Spacing } from '@/constants/theme';
 import { useClubs } from '@/hooks/use-clubs';
 import { useTheme } from '@/hooks/use-theme';
 import { AvatarSource, pickAndCropAvatar, uploadAvatar } from '../lib/avatar';
+import { buildProfileUpdate } from '../lib/profile';
 import { supabase } from '../supabaseClient';
 
 const INTEREST_OPTIONS = [
@@ -35,6 +36,7 @@ export default function EditProfileScreen() {
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [university, setUniversity] = useState('');
+  const [schoolLocked, setSchoolLocked] = useState(false);
   const [major, setMajor] = useState('');
   const [minor, setMinor] = useState('');
   const [gradYear, setGradYear] = useState('');
@@ -58,6 +60,8 @@ export default function EditProfileScreen() {
         return;
       }
       setUserId(user.id);
+      const meta = (user.user_metadata ?? {}) as any;
+      if (meta.school_locked) setSchoolLocked(true);
 
       const { data, error } = await supabase
         .from('profiles')
@@ -147,19 +151,10 @@ export default function EditProfileScreen() {
 
     const { error } = await supabase
       .from('profiles')
-      .update({
-        display_name: displayName.trim(),
-        username: username.trim().toLowerCase().replace(/\s+/g, '_'),
-        bio: bio.trim(),
-        university: university.trim() || null,
-        major: major.trim() || null,
-        minor: minor.trim() || null,
-        grad_year: gradYear.trim() || null,
-        cohort: null,
-        avatar_url: avatarUrl,
-        interests,
-        extracurriculars,
-      })
+      .update(buildProfileUpdate(
+        { displayName, username, bio, university, major, minor, gradYear, avatarUrl, interests, extracurriculars },
+        { schoolLocked, lockedUniversity: university }
+      ))
       .eq('id', user.id);
 
     if (error) {
@@ -244,7 +239,17 @@ export default function EditProfileScreen() {
         />
         <ThemedText style={styles.counter}>{bio.length}/160</ThemedText>
 
-        <SchoolPicker value={university} onChange={setUniversity} />
+        {schoolLocked ? (
+          <>
+            <ThemedText style={styles.label} themeColor="accentCyan">University</ThemedText>
+            <View style={[styles.lockedField, { borderColor: colors.border, backgroundColor: colors.backgroundElement }]}>
+              <ThemedText style={styles.lockedText}>{university}</ThemedText>
+              <ThemedText style={styles.lockedNote} themeColor="textSecondary">Verified from your school email</ThemedText>
+            </View>
+          </>
+        ) : (
+          <SchoolPicker value={university} onChange={setUniversity} />
+        )}
         <TextField label="Grad year" placeholder="2028" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
         <View style={styles.row2}>
           <TextField containerStyle={styles.flex1} label="Major" value={major} onChangeText={setMajor} />
@@ -335,6 +340,9 @@ const styles = StyleSheet.create({
   at: { fontSize: 20, fontWeight: '900', marginRight: Spacing.two },
   flex1: { flex: 1 },
   row2: { flexDirection: 'row', gap: Spacing.two },
+  lockedField: { borderWidth: 2, borderRadius: 12, padding: Spacing.three },
+  lockedText: { fontSize: 15, fontWeight: '800' },
+  lockedNote: { fontSize: 11, fontWeight: '700', marginTop: 2 },
   bioInput: { height: 90, textAlignVertical: 'top' },
   counter: { fontSize: 11, opacity: 0.6, textAlign: 'right', marginTop: Spacing.one },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },

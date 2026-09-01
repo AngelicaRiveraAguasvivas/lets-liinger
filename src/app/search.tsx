@@ -21,7 +21,15 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'clubs', label: 'Clubs' },
 ];
 
-interface EventHit { id: string; title: string; location: string | null; category: string | null; }
+interface EventHit {
+  id: string;
+  title: string;
+  location: string | null;
+  category: string | null;
+  school: string | null;
+  visibility: string | null;
+  created_by: string | null;
+}
 interface ClubHit { id: string; name: string; emoji: string | null; }
 
 export default function SearchScreen() {
@@ -29,6 +37,7 @@ export default function SearchScreen() {
   const router = useRouter();
 
   const [selfId, setSelfId] = useState<string | null>(null);
+  const [myUniversity, setMyUniversity] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('people');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PublicProfile[]>([]);
@@ -49,11 +58,12 @@ export default function SearchScreen() {
         if (cancelled || !user) return;
         setSelfId(user.id);
         const [prof, following, blocked] = await Promise.all([
-          supabase.from('profiles').select('interests').eq('id', user.id).single(),
+          supabase.from('profiles').select('interests, university').eq('id', user.id).single(),
           getFollowingIds(user.id),
           getBlockedIds(user.id),
         ]);
         if (cancelled) return;
+        setMyUniversity((prof.data as any)?.university ?? null);
         setFollowingIds(following);
         setBlockedIds(blocked);
         const exclude = new Set<string>([...following, ...blocked]);
@@ -77,11 +87,15 @@ export default function SearchScreen() {
     } else if (which === 'events') {
       const { data } = await supabase
         .from('events')
-        .select('id, title, location, category')
+        .select('id, title, location, category, school, visibility, created_by')
         .ilike('title', `%${q}%`)
         .order('created_at', { ascending: false })
         .limit(25);
-      setEventResults((data as EventHit[]) ?? []);
+      const hits = (data as EventHit[]) ?? [];
+      // Hide "my school only" events from every other school (except the
+      // creator, who can always see their own) — the same visibility rule
+      // the home feed and map apply.
+      setEventResults(hits.filter((e) => e.visibility !== 'school' || e.school === myUniversity || e.created_by === selfId));
     } else {
       const { data } = await supabase
         .from('clubs')
@@ -91,7 +105,7 @@ export default function SearchScreen() {
       setClubResults((data as ClubHit[]) ?? []);
     }
     setSearching(false);
-  }, [selfId, blockedIds]);
+  }, [selfId, blockedIds, myUniversity]);
 
   function onChange(text: string) {
     setQuery(text);

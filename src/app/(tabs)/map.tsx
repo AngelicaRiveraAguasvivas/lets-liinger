@@ -90,14 +90,21 @@ export default function MapScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id ?? null);
 
-    const [eventsRes, rsvpsRes] = await Promise.all([
+    const [eventsRes, rsvpsRes, profRes] = await Promise.all([
       supabase
         .from('events')
-        .select('id, title, location, event_time, latitude, longitude, host, category, creator:profiles!events_created_by_fkey(username, display_name)'),
+        .select('id, title, location, event_time, latitude, longitude, host, category, school, visibility, created_by, creator:profiles!events_created_by_fkey(username, display_name)'),
       supabase.from('rsvps').select('event_id, user_id'),
+      user ? supabase.from('profiles').select('university').eq('id', user.id).single() : Promise.resolve({ data: null }),
     ]);
 
-    const rawEvents = eventsRes.data ?? [];
+    const myUniversity = (profRes.data as any)?.university ?? null;
+    // "My school only" events are hidden from every other school (except
+    // the creator, who can always see their own), same rule the home feed
+    // and search apply.
+    const rawEvents = (eventsRes.data ?? []).filter(
+      (e: any) => e.visibility !== 'school' || e.school === myUniversity || e.created_by === user?.id
+    );
     const rsvps = rsvpsRes.data ?? [];
 
     const now = new Date();

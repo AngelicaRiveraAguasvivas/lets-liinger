@@ -50,6 +50,7 @@ interface EventDetail {
   coverUrl: string | null;
   category: string | null;
   visibility: string | null;
+  school: string | null;
 }
 
 export default function EventDetailScreen() {
@@ -60,6 +61,7 @@ export default function EventDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [event, setEvent] = useState<EventDetail | null>(null);
+  const [restrictedSchool, setRestrictedSchool] = useState<string | null>(null);
   const [likeCount, setLikeCount] = useState(0);
   const [likedByMe, setLikedByMe] = useState(false);
   const [rsvpers, setRsvpers] = useState<Attendee[]>([]);
@@ -86,10 +88,10 @@ export default function EventDetailScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id ?? null);
 
-    const [eventRes, likesRes, rsvpsRes, commentsRes] = await Promise.all([
+    const [eventRes, likesRes, rsvpsRes, commentsRes, profRes] = await Promise.all([
       supabase
         .from('events')
-        .select('id, title, description, location, event_time, host, created_at, created_by, latitude, longitude, cover_url, category, visibility, creator:profiles!events_created_by_fkey(username, display_name, avatar_url)')
+        .select('id, title, description, location, event_time, host, created_at, created_by, latitude, longitude, cover_url, category, visibility, school, creator:profiles!events_created_by_fkey(username, display_name, avatar_url)')
         .eq('id', id)
         .single(),
       supabase.from('event_likes').select('user_id').eq('event_id', id),
@@ -102,10 +104,29 @@ export default function EventDetailScreen() {
         .select('id, content, created_at, user_id, author:profiles!event_comments_user_id_fkey(username, display_name, avatar_url)')
         .eq('event_id', id)
         .order('created_at', { ascending: true }),
+      user ? supabase.from('profiles').select('university').eq('id', user.id).single() : Promise.resolve({ data: null }),
     ]);
+
+    const myUniversity = (profRes.data as any)?.university ?? null;
 
     if (eventRes.data) {
       const e: any = eventRes.data;
+
+      // Defense-in-depth for direct/shared links: RLS is the real
+      // enforcement (see supabase/sql/events_school_visibility_rls.sql),
+      // this just avoids rendering the full event to a viewer from another
+      // school before that lands, or if it's ever misconfigured. The
+      // creator can always see their own event, matching the RLS policy's
+      // `created_by = auth.uid()` clause.
+      const isOwnEvent = !!user && e.created_by === user.id;
+      if (e.visibility === 'school' && e.school !== myUniversity && !isOwnEvent) {
+        setRestrictedSchool(e.school ?? 'a different school');
+        setEvent(null);
+        setLoading(false);
+        return;
+      }
+      setRestrictedSchool(null);
+
       setEvent({
         id: e.id,
         title: e.title,
@@ -125,6 +146,7 @@ export default function EventDetailScreen() {
         coverUrl: e.cover_url ?? null,
         category: e.category ?? null,
         visibility: e.visibility ?? null,
+        school: e.school ?? null,
       });
     }
 
@@ -336,6 +358,21 @@ export default function EventDetailScreen() {
     return (
       <SafeAreaView style={dynamicStyles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.loadingWrap}><ActivityIndicator size="large" color={colors.text} /></View>
+      </SafeAreaView>
+    );
+  }
+
+  if (restrictedSchool) {
+    return (
+      <SafeAreaView style={dynamicStyles.safeArea} edges={['top', 'left', 'right']}>
+        <View style={styles.content}>
+          <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
+            <ThemedText style={dynamicStyles.headerText}>‹ back</ThemedText>
+          </TouchableOpacity>
+          <ThemedText style={styles.noteText} themeColor="textSecondary">
+            This event is restricted to {restrictedSchool} students.
+          </ThemedText>
+        </View>
       </SafeAreaView>
     );
   }

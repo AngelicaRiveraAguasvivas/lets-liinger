@@ -1,0 +1,63 @@
+-- School-only event visibility (RLS) — investigation record
+--
+-- Short version: NO POLICY CHANGE NEEDED. Do not run a new policy against
+-- this table for this concern — see below.
+--
+-- Original concern: events.visibility = 'school' was being saved by the
+-- app but no client read path filtered on it, so it looked like any
+-- authenticated user could read any event via the API regardless of
+-- visibility/school. That was true of the CLIENT code, but visibility
+-- into the actual database was missing at the time — it turned out the
+-- real enforcement already existed.
+--
+-- ============================================================
+-- What's actually live (checked via pg_policies on 2026-08-31)
+-- ============================================================
+-- select schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
+-- from pg_policies where tablename = 'events';
+--
+-- events, "scoped event visibility", PERMISSIVE, {authenticated}, SELECT,
+--   (visibility = 'public'::text)
+--   OR (created_by = auth.uid())
+--   OR ((school IS NOT NULL) AND (school = my_university()))
+--
+-- Walking through it:
+--   visibility = 'public'                    -> visible to everyone
+--   visibility = 'school', same school        -> visible (school = my_university())
+--   visibility = 'school', different school   -> NOT visible (no clause matches)
+--   any visibility, viewer is the creator      -> always visible (own events)
+--
+-- That's exactly the requirement: school-only events are restricted to
+-- the poster's school, public events stay open to everyone, and this is
+-- the only permissive SELECT policy on the table, so there's no
+-- OR-composition trap to worry about either.
+--
+-- ============================================================
+-- The one discrepancy found, and why it doesn't matter
+-- ============================================================
+-- The live policy has no special case for `visibility IS NULL` — a NULL
+-- row is NOT 'public', so it falls through to the same school-scoping as
+-- 'school' rows, rather than being open to everyone. The original spec
+-- for this fix assumed NULL should mean "everyone can see it" (treating
+-- it as a legacy/unmigrated default).
+--
+-- Checked directly against the data:
+--   select visibility, count(*) from public.events group by visibility;
+--   -> public: 8, school: 1, (no NULL rows)
+--
+-- No row is or has ever been affected by this discrepancy. Nothing to
+-- change. If a NULL row is ever introduced later (e.g. a future insert
+-- path that forgets to set visibility), it will default to the stricter
+-- "own school only" behavior rather than "everyone" — arguably the safer
+-- failure mode anyway, so this has been left as-is rather than "fixed."
+--
+-- ============================================================
+-- Client-side filters added in index.tsx / search.tsx / map.tsx /
+-- event-detail.tsx for this same concern
+-- ============================================================
+-- Those still stand as legitimate defense-in-depth (and they fix a real
+-- correctness issue: those screens would otherwise render whatever rows
+-- Supabase handed them without a school-aware guard of their own), but
+-- they were not closing a live data leak — the RLS policy above already
+-- ensured the API never returned those rows to another school's client
+-- in the first place.

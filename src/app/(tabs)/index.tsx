@@ -58,6 +58,7 @@ interface EnrichedEvent {
   coverUrl: string | null;
   category: string | null;
   school: string | null;
+  visibility: string | null;
 }
 
 // "Posted 3h ago" style relative label.
@@ -141,7 +142,7 @@ export default function HomeScreen() {
     let eventsQuery = supabase
       .from('events')
       .select(
-        'id, title, description, location, event_time, latitude, longitude, created_at, host, created_by, cover_url, category, school, creator:profiles!events_created_by_fkey(username, display_name)',
+        'id, title, description, location, event_time, latitude, longitude, created_at, host, created_by, cover_url, category, school, visibility, creator:profiles!events_created_by_fkey(username, display_name)',
         { count: 'exact' }
       )
       .order('created_at', { ascending: false })
@@ -222,6 +223,7 @@ export default function HomeScreen() {
         coverUrl: e.cover_url ?? null,
         category: e.category ?? null,
         school: e.school ?? null,
+        visibility: e.visibility ?? null,
       };
     });
 
@@ -324,6 +326,10 @@ export default function HomeScreen() {
 
   // Filter + sort for display
   const visibleEvents = events
+    // "My school only" events are hidden from every other school regardless
+    // of the mine/all scope toggle — that toggle is just the viewer's own
+    // feed preference, not a bypass for another school's private events.
+    .filter((e) => (e.visibility === 'school' ? e.school === myUniversity || e.createdBy === userId : true))
     .filter((e) => (scope === 'mine' && myUniversity ? e.school === myUniversity : true))
     .filter((e) => (followingOnly ? !!e.createdBy && followingIds.has(e.createdBy) : true))
     .filter((e) => (categoryFilter ? e.category === categoryFilter : true))
