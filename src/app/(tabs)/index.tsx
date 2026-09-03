@@ -37,6 +37,27 @@ function eventTimeMs(iso: string | null): number | null {
   return isNaN(d.getTime()) ? null : d.getTime();
 }
 
+// A stable per-day key so events on the same calendar date group together.
+function dayKey(ms: number | null): string {
+  if (ms == null) return 'tbd';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+// Friendly date-section label: "Today" / "Tomorrow" / "Monday, Sep 8".
+function dayLabel(ms: number | null): string {
+  if (ms == null) return 'Date TBD';
+  const d = new Date(ms);
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, now)) return 'Today';
+  if (sameDay(d, tomorrow)) return 'Tomorrow';
+  return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
 interface EnrichedEvent {
   id: string;
   title: string;
@@ -369,11 +390,35 @@ export default function HomeScreen() {
       return b.created_at.localeCompare(a.created_at);
     });
 
+  // When sorted by "Upcoming", stack the events into date sections — a date
+  // header, then that day's events beneath it, then the next date, and so on.
+  // visibleEvents is already in chronological order here, so we just start a
+  // new group each time the calendar day changes. Other sort modes stay flat.
+  const dateGroups =
+    sortMode === 'upcoming'
+      ? (() => {
+          const groups: { key: string; label: string; events: EnrichedEvent[] }[] = [];
+          for (const ev of visibleEvents) {
+            const ms = eventTimeMs(ev.event_time);
+            const key = dayKey(ms);
+            const last = groups[groups.length - 1];
+            if (last && last.key === key) last.events.push(ev);
+            else groups.push({ key, label: dayLabel(ms), events: [ev] });
+          }
+          return groups;
+        })()
+      : null;
+
   const dynamicStyles = useMemo(() => StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: colors.background },
     headerText: {
       color: colors.text, fontFamily: 'Helvetica', fontWeight: '900',
       fontSize: 32, letterSpacing: -1,
+      // Explicit lineHeight + vertical padding stop the tall 900-weight
+      // glyphs from being clipped (Android especially shaves them without
+      // this); flexShrink lets the title give room to the icons instead of
+      // being cut off horizontally on narrower devices.
+      lineHeight: 42, paddingVertical: 2, flexShrink: 1,
     },
     input: {
       flex: 1, paddingHorizontal: Spacing.two, fontSize: 15,
@@ -396,11 +441,113 @@ export default function HomeScreen() {
     { key: 'nearby', label: 'Nearby' },
   ];
 
+  const renderEventCard = (event: EnrichedEvent) => (
+    <ShadowSurface
+      key={event.id}
+      backgroundColor={colors.backgroundElement}
+      radius={20}
+      offset={6}
+      wrapperStyle={styles.cardShadow}
+      style={styles.card}
+      onPress={() => router.push(`/event-detail?id=${event.id}`)}
+    >
+      {event.coverUrl ? (
+        <Image source={{ uri: event.coverUrl }} style={styles.cardCover} resizeMode="cover" />
+      ) : null}
+      {categoryLabel(event.category) ? (
+        <View style={[styles.cardCategory, { backgroundColor: categoryColor(event.category), borderColor: colors.border }]}>
+          <ThemedText style={styles.cardCategoryText}>{categoryLabel(event.category)}</ThemedText>
+        </View>
+      ) : null}
+      <ThemedText style={styles.eventTitle}>{event.title}</ThemedText>
+
+      <View style={styles.metaRow}>
+        <ThemedText style={styles.metaLabel}>HOSTED BY:</ThemedText>
+        {event.hostName.startsWith('@') ? (
+          <ThemedText style={styles.metaValue}>{event.hostName}</ThemedText>
+        ) : (
+          <TouchableOpacity onPress={() => router.push(`/club?name=${encodeURIComponent(event.hostName)}`)}>
+            <ThemedText style={[styles.metaValue, { color: colors.accentCyan }]}>{event.hostName}</ThemedText>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.detailItem}>
+        <ThemedText style={styles.detailText}>{event.location ?? 'TBD'}</ThemedText>
+      </View>
+
+      <View style={styles.detailItem}>
+        <ThemedText style={styles.detailText}>
+          {formatEventTime(event.event_time)}
+        </ThemedText>
+      </View>
+
+      {sortMode === 'nearby' && event.distance != null && (
+        <View style={styles.detailItem}>
+          <ThemedText style={styles.detailText}>
+            {milesAway(event.distance)}
+          </ThemedText>
+        </View>
+      )}
+
+      {event.rsvpCount > 0 && (
+        <ThemedText style={styles.rsvpLine} themeColor="textSecondary">
+          {rsvpSummary(event.rsvpers, event.rsvpCount)}
+        </ThemedText>
+      )}
+
+      <View style={styles.cardActions}>
+        <TouchableOpacity
+          style={[
+            dynamicStyles.actionBtn,
+            { backgroundColor: event.rsvpedByMe ? colors.accentGreen : colors.accentYellow },
+          ]}
+          onPress={() => toggleRsvp(event)}
+        >
+          <ThemedText style={styles.buttonText}>
+            {event.rsvpedByMe ? "✓ RSVP'D!" : 'RSVP'}
+          </ThemedText>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            dynamicStyles.actionBtn,
+            { backgroundColor: event.likedByMe ? colors.accentPink : colors.accentCyan, flex: 0.5 },
+          ]}
+          onPress={() => toggleLike(event)}
+        >
+          <ThemedText style={styles.buttonText}>
+            {event.likedByMe ? '💖' : '🤍'} {event.likeCount}
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.cardFooter}>
+        {event.createdBy && event.createdBy !== userId ? (
+          <TouchableOpacity onPress={() => router.push(`/user?id=${event.createdBy}`)}>
+            <ThemedText style={styles.postedText} themeColor="textSecondary">
+              Posted {formatPosted(event.created_at)} by {event.postedBy}
+            </ThemedText>
+          </TouchableOpacity>
+        ) : (
+          <ThemedText style={styles.postedText} themeColor="textSecondary">
+            Posted {formatPosted(event.created_at)} by {event.postedBy}
+          </ThemedText>
+        )}
+        <ThemedText style={styles.commentHint} themeColor="textSecondary">
+          Tap to view & comment →
+        </ThemedText>
+      </View>
+    </ShadowSurface>
+  );
+
   return (
     <SafeAreaView style={dynamicStyles.safeArea} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <ThemedText style={dynamicStyles.headerText}>LetsLiinger</ThemedText>
+          <ThemedText style={dynamicStyles.headerText} numberOfLines={1} adjustsFontSizeToFit>
+            LetsLiinger
+          </ThemedText>
           <View style={styles.headerActions}>
             <IconButton icon={require('@/assets/images/icons/search.png')} size={20} onPress={() => router.push('/search')} />
             <View>
@@ -548,106 +695,21 @@ export default function HomeScreen() {
                 : 'Tap “+ CREATE EVENT” to add the first one!'
             }
           />
-        ) : (
-          visibleEvents.map((event) => (
-            <ShadowSurface
-              key={event.id}
-              backgroundColor={colors.backgroundElement}
-              radius={20}
-              offset={6}
-              wrapperStyle={styles.cardShadow}
-              style={styles.card}
-              onPress={() => router.push(`/event-detail?id=${event.id}`)}
-            >
-              {event.coverUrl ? (
-                <Image source={{ uri: event.coverUrl }} style={styles.cardCover} resizeMode="cover" />
-              ) : null}
-              {categoryLabel(event.category) ? (
-                <View style={[styles.cardCategory, { backgroundColor: categoryColor(event.category), borderColor: colors.border }]}>
-                  <ThemedText style={styles.cardCategoryText}>{categoryLabel(event.category)}</ThemedText>
-                </View>
-              ) : null}
-              <ThemedText style={styles.eventTitle}>{event.title}</ThemedText>
-
-              <View style={styles.metaRow}>
-                <ThemedText style={styles.metaLabel}>HOSTED BY:</ThemedText>
-                {event.hostName.startsWith('@') ? (
-                  <ThemedText style={styles.metaValue}>{event.hostName}</ThemedText>
-                ) : (
-                  <TouchableOpacity onPress={() => router.push(`/club?name=${encodeURIComponent(event.hostName)}`)}>
-                    <ThemedText style={[styles.metaValue, { color: colors.accentCyan }]}>{event.hostName}</ThemedText>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              <View style={styles.detailItem}>
-                <ThemedText style={styles.detailText}>{event.location ?? 'TBD'}</ThemedText>
-              </View>
-
-              <View style={styles.detailItem}>
-                <ThemedText style={styles.detailText}>
-                  {formatEventTime(event.event_time)}
+        ) : dateGroups ? (
+          dateGroups.map((group) => (
+            <View key={group.key}>
+              <View style={styles.dateHeader}>
+                <View style={[styles.dateBar, { backgroundColor: colors.accentPink, borderColor: colors.border }]} />
+                <ThemedText style={styles.dateHeaderText}>{group.label}</ThemedText>
+                <ThemedText style={styles.dateCount} themeColor="textSecondary">
+                  {group.events.length} {group.events.length === 1 ? 'event' : 'events'}
                 </ThemedText>
               </View>
-
-              {sortMode === 'nearby' && event.distance != null && (
-                <View style={styles.detailItem}>
-                  <ThemedText style={styles.detailText}>
-                    {milesAway(event.distance)}
-                  </ThemedText>
-                </View>
-              )}
-
-              {event.rsvpCount > 0 && (
-                <ThemedText style={styles.rsvpLine} themeColor="textSecondary">
-                  {rsvpSummary(event.rsvpers, event.rsvpCount)}
-                </ThemedText>
-              )}
-
-              <View style={styles.cardActions}>
-                <TouchableOpacity
-                  style={[
-                    dynamicStyles.actionBtn,
-                    { backgroundColor: event.rsvpedByMe ? colors.accentGreen : colors.accentYellow },
-                  ]}
-                  onPress={() => toggleRsvp(event)}
-                >
-                  <ThemedText style={styles.buttonText}>
-                    {event.rsvpedByMe ? "✓ RSVP'D!" : 'RSVP'}
-                  </ThemedText>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    dynamicStyles.actionBtn,
-                    { backgroundColor: event.likedByMe ? colors.accentPink : colors.accentCyan, flex: 0.5 },
-                  ]}
-                  onPress={() => toggleLike(event)}
-                >
-                  <ThemedText style={styles.buttonText}>
-                    {event.likedByMe ? '💖' : '🤍'} {event.likeCount}
-                  </ThemedText>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.cardFooter}>
-                {event.createdBy && event.createdBy !== userId ? (
-                  <TouchableOpacity onPress={() => router.push(`/user?id=${event.createdBy}`)}>
-                    <ThemedText style={styles.postedText} themeColor="textSecondary">
-                      Posted {formatPosted(event.created_at)} by {event.postedBy}
-                    </ThemedText>
-                  </TouchableOpacity>
-                ) : (
-                  <ThemedText style={styles.postedText} themeColor="textSecondary">
-                    Posted {formatPosted(event.created_at)} by {event.postedBy}
-                  </ThemedText>
-                )}
-                <ThemedText style={styles.commentHint} themeColor="textSecondary">
-                  Tap to view & comment →
-                </ThemedText>
-              </View>
-            </ShadowSurface>
+              {group.events.map(renderEventCard)}
+            </View>
           ))
+        ) : (
+          visibleEvents.map(renderEventCard)
         )}
 
         {!loading && hasMore && (
@@ -721,6 +783,13 @@ const styles = StyleSheet.create({
   sortRow: { flexDirection: 'row', gap: Spacing.two, flexGrow: 1 },
   followingChip: { marginLeft: 'auto' },
   noteText: { fontSize: 13, fontWeight: '600', marginBottom: Spacing.three },
+  dateHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.two,
+    marginTop: Spacing.one, marginBottom: Spacing.three,
+  },
+  dateBar: { width: 6, height: 24, borderRadius: 3, borderWidth: 2 },
+  dateHeaderText: { fontSize: 18, fontWeight: '900', letterSpacing: -0.5 },
+  dateCount: { fontSize: 12, fontWeight: '700', marginLeft: 'auto' },
   cardShadow: { marginBottom: Spacing.four },
   card: { padding: Spacing.three },
   eventTitle: { fontSize: 22, fontWeight: '900', lineHeight: 26, marginBottom: Spacing.one },

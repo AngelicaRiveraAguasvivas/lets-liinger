@@ -242,6 +242,9 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: 'Helvetica', fontWeight: '900',
     fontSize: 40, letterSpacing: -1, textAlign: 'center',
+    // lineHeight + padding keep the heavy title from being clipped (mainly
+    // an Android glyph-clipping issue with 900-weight text).
+    lineHeight: 50, paddingVertical: 2,
   },
   subtitle: { textAlign: 'center', marginTop: Spacing.two, marginBottom: Spacing.six },
   forgotRow: { alignSelf: 'flex-end', marginTop: Spacing.two },
