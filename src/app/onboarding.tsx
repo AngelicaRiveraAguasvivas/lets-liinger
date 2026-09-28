@@ -15,6 +15,7 @@ import { Spacing } from '@/constants/theme';
 import { useClubs } from '@/hooks/use-clubs';
 import { useTheme } from '@/hooks/use-theme';
 import { AvatarSource, pickAndCropAvatar, uploadAvatar } from '../lib/avatar';
+import { requestSchoolCalendar } from '../lib/calendar-discovery';
 import { checkClean } from '../lib/profanity';
 import { supabase } from '../supabaseClient';
 
@@ -145,6 +146,10 @@ export default function OnboardingScreen() {
       setSaving(false);
       return;
     }
+
+    // Kick off automatic campus-calendar discovery for this school so its
+    // events start flowing in (best-effort, non-blocking).
+    requestSchoolCalendar(university.trim(), (user.email ?? '').split('@')[1]);
 
     // Mirror the flag onto the auth user so the session carries it.
     // This fires an auth-state-change event, which the root layout listens for.
