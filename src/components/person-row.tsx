@@ -12,12 +12,14 @@ interface PersonRowProps {
   isSelf?: boolean;
   isFollowing?: boolean;
   onToggleFollow?: () => void;
+  /** Small line under the handle, e.g. "12 mutual friends". */
+  note?: string;
 }
 
 // Avatar + name + @handle row that links to the person's profile, with an
 // optional Follow / Following toggle on the right. Shared by search and the
 // followers / following lists.
-export function PersonRow({ profile, isSelf, isFollowing, onToggleFollow }: PersonRowProps) {
+export function PersonRow({ profile, isSelf, isFollowing, onToggleFollow, note }: PersonRowProps) {
   const colors = useTheme();
   const router = useRouter();
   const name = profile.display_name || profile.username || 'Student';
@@ -45,6 +47,9 @@ export function PersonRow({ profile, isSelf, isFollowing, onToggleFollow }: Pers
         <ThemedText style={styles.handle} themeColor="textSecondary" numberOfLines={1}>
           @{profile.username || 'username'}
         </ThemedText>
+        {note ? (
+          <ThemedText style={styles.note} themeColor="accentCyan" numberOfLines={1}>{note}</ThemedText>
+        ) : null}
       </View>
 
       {!isSelf && onToggleFollow && (
@@ -77,6 +82,7 @@ const styles = StyleSheet.create({
   info: { flex: 1 },
   name: { fontSize: 15, fontWeight: '900' },
   handle: { fontSize: 12, fontWeight: '700' },
+  note: { fontSize: 11, fontWeight: '800', marginTop: 1 },
   followBtn: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one },
   followText: { fontWeight: '900', fontSize: 12 },
 });

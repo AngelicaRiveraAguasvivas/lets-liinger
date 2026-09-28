@@ -109,6 +109,32 @@ export async function getMutualFollowers(myId: string, targetId: string): Promis
   return { names, count: names.length };
 }
 
+export interface Suggestion extends PublicProfile {
+  mutualCount: number;
+}
+
+// "People you may know" ranked by MUTUAL follows (friends of the people you
+// already follow), same-school first. Excludes self, people you follow, and
+// blocked users server-side. `exclude` drops anyone you've just followed this
+// session so the list updates without a refetch.
+export async function getPeopleYouMayKnow(
+  exclude: Set<string>,
+  limit = 12
+): Promise<Suggestion[]> {
+  const { data, error } = await supabase.rpc('suggested_profiles', { lim: limit });
+  if (error || !data) return [];
+  return (data as any[])
+    .filter((r) => !exclude.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      username: r.username,
+      display_name: r.display_name,
+      avatar_url: r.avatar_url,
+      bio: r.bio,
+      mutualCount: Number(r.mutual_count) || 0,
+    }));
+}
+
 // "People you may know": profiles sharing at least one interest with me,
 // excluding myself, people I already follow, and blocked users.
 export async function getSuggestions(

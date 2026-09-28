@@ -10,7 +10,7 @@ import { TextField } from '@/components/ui/text-field';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { categoryColor, categoryLabel } from '@/lib/categories';
-import { followUser, getFollowingIds, getSuggestions, PublicProfile, searchProfiles, unfollowUser } from '../lib/follows';
+import { followUser, getFollowingIds, getPeopleYouMayKnow, getSuggestions, PublicProfile, searchProfiles, unfollowUser } from '../lib/follows';
 import { getBlockedIds } from '../lib/moderation';
 import { supabase } from '../supabaseClient';
 
@@ -45,7 +45,8 @@ export default function SearchScreen() {
   const [clubResults, setClubResults] = useState<ClubHit[]>([]);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
-  const [suggestions, setSuggestions] = useState<PublicProfile[]>([]);
+  const [suggestions, setSuggestions] = useState<(PublicProfile & { mutualCount?: number })[]>([]);
+  const [suggestReason, setSuggestReason] = useState<'mutuals' | 'interests'>('mutuals');
   const [searching, setSearching] = useState(false);
   const [touched, setTouched] = useState(false);
   const timer = useRef<any>(null);
@@ -67,8 +68,17 @@ export default function SearchScreen() {
         setFollowingIds(following);
         setBlockedIds(blocked);
         const exclude = new Set<string>([...following, ...blocked]);
-        const sugg = await getSuggestions(user.id, (prof.data as any)?.interests ?? [], exclude);
-        if (!cancelled) setSuggestions(sugg);
+        // Prefer friends-of-friends (mutual follows); fall back to shared
+        // interests for new users who don't follow anyone yet.
+        const mutuals = await getPeopleYouMayKnow(exclude);
+        if (cancelled) return;
+        if (mutuals.length > 0) {
+          setSuggestReason('mutuals');
+          setSuggestions(mutuals);
+        } else {
+          const byInterest = await getSuggestions(user.id, (prof.data as any)?.interests ?? [], exclude);
+          if (!cancelled) { setSuggestReason('interests'); setSuggestions(byInterest); }
+        }
       })();
       return () => { cancelled = true; };
     }, [])
@@ -176,9 +186,17 @@ export default function SearchScreen() {
             ) : suggestions.length > 0 ? (
               <>
                 <ThemedText style={styles.suggestTitle}>PEOPLE YOU MAY KNOW</ThemedText>
-                <ThemedText style={styles.suggestSub} themeColor="textSecondary">Based on interests you share.</ThemedText>
+                <ThemedText style={styles.suggestSub} themeColor="textSecondary">
+                  {suggestReason === 'mutuals' ? 'Friends of people you follow.' : 'Based on interests you share.'}
+                </ThemedText>
                 {suggestions.map((p) => (
-                  <PersonRow key={p.id} profile={p} isFollowing={followingIds.has(p.id)} onToggleFollow={() => toggleFollow(p.id)} />
+                  <PersonRow
+                    key={p.id}
+                    profile={p}
+                    isFollowing={followingIds.has(p.id)}
+                    onToggleFollow={() => toggleFollow(p.id)}
+                    note={p.mutualCount ? `${p.mutualCount} mutual${p.mutualCount === 1 ? '' : 's'}` : undefined}
+                  />
                 ))}
               </>
             ) : (

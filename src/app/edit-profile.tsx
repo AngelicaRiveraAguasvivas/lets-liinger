@@ -16,6 +16,7 @@ import { Spacing } from '@/constants/theme';
 import { useClubs } from '@/hooks/use-clubs';
 import { useTheme } from '@/hooks/use-theme';
 import { AvatarSource, pickAndCropAvatar, uploadAvatar } from '../lib/avatar';
+import { getMyPhone, setMyPhone } from '../lib/contacts';
 import { buildProfileUpdate } from '../lib/profile';
 import { supabase } from '../supabaseClient';
 
@@ -40,6 +41,7 @@ export default function EditProfileScreen() {
   const [major, setMajor] = useState('');
   const [minor, setMinor] = useState('');
   const [gradYear, setGradYear] = useState('');
+  const [phone, setPhone] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarMenuVisible, setAvatarMenuVisible] = useState(false);
@@ -81,6 +83,7 @@ export default function EditProfileScreen() {
         setInterests(data.interests ?? []);
         setExtracurriculars(data.extracurriculars ?? []);
       }
+      setPhone((await getMyPhone(user.id)) ?? '');
       setLoadingProfile(false);
     }
     load();
@@ -159,6 +162,14 @@ export default function EditProfileScreen() {
 
     if (error) {
       setErrorMsg(error.code === '23505' ? 'That username is already taken — try another.' : error.message);
+      setSaving(false);
+      return;
+    }
+
+    // Phone lives in its own private table (never on the public profile).
+    const phoneErr = await setMyPhone(user.id, phone);
+    if (phoneErr) {
+      setErrorMsg(phoneErr);
       setSaving(false);
       return;
     }
@@ -256,6 +267,17 @@ export default function EditProfileScreen() {
           <TextField containerStyle={styles.flex1} label="Minor (optional)" value={minor} onChangeText={setMinor} />
         </View>
 
+        <TextField
+          label="Phone (optional)"
+          placeholder="(555) 123-4567"
+          keyboardType="phone-pad"
+          value={phone}
+          onChangeText={setPhone}
+        />
+        <ThemedText style={styles.hint} themeColor="textSecondary">
+          Private — never shown on your profile. Only used so friends who have your number can find you. Leave blank to skip.
+        </ThemedText>
+
         <ThemedText style={styles.label} themeColor="accentCyan">What are you into?</ThemedText>
         <View style={styles.chipWrap}>
           {INTEREST_OPTIONS.map(tag => (
@@ -340,6 +362,7 @@ const styles = StyleSheet.create({
   at: { fontSize: 20, fontWeight: '900', marginRight: Spacing.two },
   flex1: { flex: 1 },
   row2: { flexDirection: 'row', gap: Spacing.two },
+  hint: { fontSize: 12, marginTop: Spacing.one, marginBottom: Spacing.two },
   lockedField: { borderWidth: 2, borderRadius: 12, padding: Spacing.three },
   lockedText: { fontSize: 15, fontWeight: '800' },
   lockedNote: { fontSize: 11, fontWeight: '700', marginTop: 2 },
