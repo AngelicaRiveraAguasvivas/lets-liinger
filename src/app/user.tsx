@@ -10,7 +10,8 @@ import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { followUser, getFollowCounts, getMutualFollowers, isFollowing as checkFollowing, unfollowUser } from '../lib/follows';
-import { blockUser, getBlockedIds, getMyBlockedIds, reportUser, unblockUser } from '../lib/moderation';
+import { ReportModal } from '@/components/report-modal';
+import { blockUser, getBlockedIds, getMyBlockedIds, isModerator, reportUser, unblockUser } from '../lib/moderation';
 import { supabase } from '../supabaseClient';
 
 interface ViewProfile {
@@ -45,7 +46,9 @@ export default function UserProfileScreen() {
   const [blockedEither, setBlockedEither] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [reportVisible, setReportVisible] = useState(false);
   const [reported, setReported] = useState(false);
+  const [shadowHidden, setShadowHidden] = useState(false);
   const [hosting, setHosting] = useState<{ id: string; title: string; location: string | null }[]>([]);
   const [going, setGoing] = useState<{ id: string; title: string; location: string | null }[]>([]);
 
@@ -83,13 +86,16 @@ export default function UserProfileScreen() {
           return;
         }
 
-        const [profRes, c, isF, mut] = await Promise.all([
-          supabase.from('profiles').select('id, display_name, username, bio, avatar_url, interests, extracurriculars, university, major, minor, grad_year, cohort, is_private').eq('id', id).single(),
+        const [profRes, c, isF, mut, amMod] = await Promise.all([
+          supabase.from('profiles').select('id, display_name, username, bio, avatar_url, interests, extracurriculars, university, major, minor, grad_year, cohort, is_private, shadow_banned').eq('id', id).single(),
           getFollowCounts(id),
           user ? checkFollowing(user.id, id) : Promise.resolve(false),
           user ? getMutualFollowers(user.id, id) : Promise.resolve({ names: [], count: 0 }),
+          user ? isModerator(user.id) : Promise.resolve(false),
         ]);
         if (cancelled) return;
+        // A shadow-banned account is hidden from everyone but moderators.
+        setShadowHidden(!!(profRes.data as any)?.shadow_banned && !amMod);
         if (!profRes.error) setProfile(profRes.data as ViewProfile);
         setCounts(c);
         setFollowing(isF);
@@ -139,11 +145,16 @@ export default function UserProfileScreen() {
     }
   }
 
-  async function handleReport() {
-    if (!selfId || !id) return;
+  function handleReport() {
     setMenuVisible(false);
+    setReportVisible(true);
+  }
+
+  async function submitReport(category: string, detail: string) {
+    if (!selfId || !id) return;
+    setReportVisible(false);
     setReported(true);
-    await reportUser(selfId, id, 'reported from profile');
+    await reportUser(selfId, id, category, detail);
   }
 
   const clubColors = [colors.accentPink, colors.accentCyan, colors.accentYellow, colors.accentGreen];
@@ -169,7 +180,7 @@ export default function UserProfileScreen() {
 
   // Blocked in either direction → never show their page. If YOU blocked them,
   // offer an Unblock; if they blocked you, it's simply unavailable.
-  if (blockedEither) {
+  if (blockedEither || shadowHidden) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
         <View style={styles.content}>
@@ -379,6 +390,13 @@ export default function UserProfileScreen() {
           </ShadowSurface>
         </Pressable>
       </Modal>
+
+      <ReportModal
+        visible={reportVisible}
+        title={`Report @${profile.username || 'user'}`}
+        onClose={() => setReportVisible(false)}
+        onSubmit={submitReport}
+      />
     </SafeAreaView>
   );
 }

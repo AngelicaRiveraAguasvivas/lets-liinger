@@ -17,6 +17,7 @@ export async function searchProfiles(query: string, selfId: string | null): Prom
     .from('profiles')
     .select('id, username, display_name, avatar_url, bio')
     .or(`username.ilike.${like},display_name.ilike.${like}`)
+    .eq('shadow_banned', false)
     .limit(30);
   if (selfId) req = req.neq('id', selfId);
   const { data } = await req;

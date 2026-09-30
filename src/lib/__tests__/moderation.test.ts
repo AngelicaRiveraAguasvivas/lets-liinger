@@ -107,13 +107,15 @@ describe('reportUser', () => {
     const builder = queryBuilder({ data: null });
     mockFrom.mockReturnValueOnce(builder);
 
-    await reportUser('reporter', 'target', 'spam');
+    await reportUser('reporter', 'target', 'spam', 'they keep spamming');
 
     expect(mockFrom).toHaveBeenCalledWith('reports');
     expect(builder.insert).toHaveBeenCalledWith({
       reporter_id: 'reporter',
       target_user_id: 'target',
-      reason: 'spam',
+      category: 'spam',
+      detail: 'they keep spamming',
+      reason: 'they keep spamming',
     });
   });
 });
@@ -123,13 +125,15 @@ describe('reportEvent', () => {
     const builder = queryBuilder({ data: null });
     mockFrom.mockReturnValueOnce(builder);
 
-    await reportEvent('reporter', 'event-1', 'inappropriate');
+    await reportEvent('reporter', 'event-1', 'spam');
 
     expect(mockFrom).toHaveBeenCalledWith('reports');
     expect(builder.insert).toHaveBeenCalledWith({
       reporter_id: 'reporter',
       target_event_id: 'event-1',
-      reason: 'inappropriate',
+      category: 'spam',
+      detail: null,
+      reason: 'spam',
     });
   });
 });

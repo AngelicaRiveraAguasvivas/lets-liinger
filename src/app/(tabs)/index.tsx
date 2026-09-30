@@ -1,5 +1,5 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -30,7 +30,7 @@ import { getBlockedIds } from '../../lib/moderation';
 import type { Coords } from '../../lib/places';
 import { supabase } from '../../supabaseClient';
 
-type SortMode = 'upcoming' | 'popular' | 'recent' | 'nearby';
+type SortMode = 'foryou' | 'trending' | 'upcoming' | 'popular' | 'recent' | 'nearby';
 
 function eventTimeMs(iso: string | null): number | null {
   if (!iso) return null;
@@ -81,6 +81,7 @@ interface EnrichedEvent {
   category: string | null;
   school: string | null;
   visibility: string | null;
+  tags: string[];
 }
 
 // "Posted 3h ago" style relative label.
@@ -130,11 +131,21 @@ function nowAsNaiveTimestamp(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+// "Trending" = engagement that's recent. Newer + more liked/RSVP'd ranks higher.
+function hoursSince(iso: string): number {
+  const ms = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T')).getTime();
+  return Math.max(0.5, (Date.now() - ms) / 3600000);
+}
+function trendingScore(e: { likeCount: number; rsvpCount: number; created_at: string }): number {
+  return (e.likeCount + 2 * e.rsvpCount + 1) / Math.pow(hoursSince(e.created_at), 0.6);
+}
+
 const PAGE_SIZE = 20;
 
 export default function HomeScreen() {
   const colors = useTheme();
   const router = useRouter();
+  const { tag } = useLocalSearchParams<{ tag?: string }>();
   const { markEventsSeen } = useNotifications();
   const { coords: userCoords, request: requestUserCoords } = useUserCoords(false);
 
@@ -144,6 +155,8 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('upcoming');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [myInterests, setMyInterests] = useState<string[]>([]);
   const [myUniversity, setMyUniversity] = useState<string | null>(null);
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
   const [followingOnly, setFollowingOnly] = useState(false);
@@ -164,7 +177,7 @@ export default function HomeScreen() {
     let eventsQuery = supabase
       .from('events')
       .select(
-        'id, title, description, location, event_time, latitude, longitude, created_at, host, created_by, cover_url, category, school, visibility, creator:profiles!events_created_by_fkey(username, display_name)',
+        'id, title, description, location, event_time, latitude, longitude, created_at, host, created_by, cover_url, category, school, visibility, tags, creator:profiles!events_created_by_fkey(username, display_name)',
         { count: 'exact' }
       )
       .order('created_at', { ascending: false })
@@ -185,9 +198,10 @@ export default function HomeScreen() {
     setUnreadNotifs(unread);
 
     if (user) {
-      const { data: prof } = await supabase.from('profiles').select('university').eq('id', user.id).single();
+      const { data: prof } = await supabase.from('profiles').select('university, interests').eq('id', user.id).single();
       const uni = (prof as any)?.university ?? null;
       setMyUniversity(uni);
+      setMyInterests(((prof as any)?.interests ?? []) as string[]);
       if (!uni) setScope('all'); // no school set → nothing to scope to
     }
 
@@ -246,6 +260,7 @@ export default function HomeScreen() {
         category: e.category ?? null,
         school: e.school ?? null,
         visibility: e.visibility ?? null,
+        tags: (e.tags ?? []) as string[],
       };
     });
 
@@ -253,6 +268,11 @@ export default function HomeScreen() {
     setLoading(false);
     setLoadingMore(false);
   }, [userCoords, limit, showPast]);
+
+  // A hashtag tapped elsewhere deep-links here as ?tag=…; reflect it as a filter.
+  useEffect(() => {
+    setTagFilter(tag ? tag.toLowerCase().replace(/^#/, '') : null);
+  }, [tag]);
 
   useFocusEffect(
     useCallback(() => {
@@ -348,6 +368,18 @@ export default function HomeScreen() {
     setSortMode('nearby');
   }
 
+  // "For You" ranks by what's relevant to *you*: your interests, people you
+  // follow, your school, plus a little recency and engagement.
+  const forYouScore = (e: EnrichedEvent): number => {
+    let s = e.likeCount + 2 * e.rsvpCount;
+    const label = categoryLabel(e.category);
+    if (label && myInterests.includes(label)) s += 5;
+    if (e.createdBy && followingIds.has(e.createdBy)) s += 6;
+    if (myUniversity && e.school === myUniversity) s += 2;
+    s += 3 / Math.pow(hoursSince(e.created_at), 0.5);
+    return s;
+  };
+
   // Filter + sort for display
   const visibleEvents = events
     // "My school only" events are hidden from every other school regardless
@@ -357,6 +389,7 @@ export default function HomeScreen() {
     .filter((e) => (scope === 'mine' && myUniversity ? e.school === myUniversity : true))
     .filter((e) => (followingOnly ? !!e.createdBy && followingIds.has(e.createdBy) : true))
     .filter((e) => (categoryFilter ? e.category === categoryFilter : true))
+    .filter((e) => (tagFilter ? e.tags.includes(tagFilter) : true))
     .filter((e) => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
@@ -367,6 +400,8 @@ export default function HomeScreen() {
       );
     })
     .sort((a, b) => {
+      if (sortMode === 'foryou') return forYouScore(b) - forYouScore(a);
+      if (sortMode === 'trending') return trendingScore(b) - trendingScore(a);
       if (sortMode === 'upcoming') {
         const now = Date.now();
         const ta = eventTimeMs(a.event_time);
@@ -438,11 +473,18 @@ export default function HomeScreen() {
   }), [colors]);
 
   const sortOptions: { key: SortMode; label: string }[] = [
+    { key: 'foryou', label: 'For You' },
+    { key: 'trending', label: 'Trending' },
     { key: 'upcoming', label: 'Upcoming' },
     { key: 'recent', label: 'Recent' },
     { key: 'popular', label: 'Popular' },
     { key: 'nearby', label: 'Nearby' },
   ];
+
+  function clearTag() {
+    setTagFilter(null);
+    router.setParams({ tag: '' });
+  }
 
   const renderEventCard = (event: EnrichedEvent) => (
     <ShadowSurface
@@ -596,6 +638,15 @@ export default function HomeScreen() {
         >
           <ThemedText style={styles.boldText}>+ CREATE EVENT</ThemedText>
         </ShadowSurface>
+
+        {tagFilter ? (
+          <TouchableOpacity
+            onPress={clearTag}
+            style={[styles.tagPill, { borderColor: colors.border, backgroundColor: colors.accentPink }]}
+          >
+            <ThemedText style={styles.tagPillText}>#{tagFilter}  ✕</ThemedText>
+          </TouchableOpacity>
+        ) : null}
 
         <ScrollView
           horizontal
@@ -782,6 +833,8 @@ const styles = StyleSheet.create({
   searchIcon: { fontSize: 15, paddingLeft: Spacing.two },
   createShadow: { marginBottom: Spacing.three },
   createBtn: { paddingVertical: Spacing.two, alignItems: 'center' },
+  tagPill: { alignSelf: 'flex-start', borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.three, paddingVertical: 5, marginBottom: Spacing.three },
+  tagPillText: { fontSize: 13, fontWeight: '900', color: '#000' },
   sortRowScroll: { marginBottom: Spacing.three },
   sortRow: { flexDirection: 'row', gap: Spacing.two, flexGrow: 1 },
   followingChip: { marginLeft: 'auto' },

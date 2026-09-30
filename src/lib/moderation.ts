@@ -36,12 +36,40 @@ export async function unblockUser(blockerId: string, blockedId: string): Promise
   await supabase.from('blocks').delete().eq('blocker_id', blockerId).eq('blocked_id', blockedId);
 }
 
-export async function reportUser(reporterId: string, targetUserId: string, reason: string): Promise<void> {
-  await supabase.from('reports').insert({ reporter_id: reporterId, target_user_id: targetUserId, reason });
+// Categorized report reasons. 'hate' / 'violence' / 'nudity' / 'harassment'
+// are the "severe" categories that can trigger an auto shadow-ban faster.
+export const REPORT_REASONS: { key: string; label: string }[] = [
+  { key: 'spam', label: 'Spam or scam' },
+  { key: 'harassment', label: 'Harassment or bullying' },
+  { key: 'hate', label: 'Hate speech or symbols' },
+  { key: 'violence', label: 'Violence or threats' },
+  { key: 'nudity', label: 'Nudity or sexual content' },
+  { key: 'impersonation', label: 'Fake account / impersonation' },
+  { key: 'underage', label: 'Underage user' },
+  { key: 'other', label: 'Something else' },
+];
+
+export async function reportUser(
+  reporterId: string, targetUserId: string, category: string, detail = ''
+): Promise<void> {
+  await supabase.from('reports').insert({
+    reporter_id: reporterId, target_user_id: targetUserId,
+    category, detail: detail.trim() || null, reason: detail.trim() || category,
+  });
 }
 
-export async function reportEvent(reporterId: string, targetEventId: string, reason: string): Promise<void> {
-  await supabase.from('reports').insert({ reporter_id: reporterId, target_event_id: targetEventId, reason });
+export async function reportEvent(
+  reporterId: string, targetEventId: string, category: string, detail = ''
+): Promise<void> {
+  await supabase.from('reports').insert({
+    reporter_id: reporterId, target_event_id: targetEventId,
+    category, detail: detail.trim() || null, reason: detail.trim() || category,
+  });
+}
+
+// Moderator action: lift (or re-apply) a shadow ban after reviewing.
+export async function setShadowBan(userId: string, value: boolean): Promise<void> {
+  await supabase.rpc('set_shadow_ban', { p_user: userId, p_val: value });
 }
 
 // ---- Moderator review queue --------------------------------------------
@@ -54,8 +82,10 @@ export type ModerationReport = {
   status: ReportStatus;
   resolution: string | null;
   created_at: string;
+  category: string | null;
+  detail: string | null;
   reporter: { username: string | null; display_name: string | null } | null;
-  targetUser: { id: string; username: string | null; display_name: string | null } | null;
+  targetUser: { id: string; username: string | null; display_name: string | null; shadow_banned?: boolean } | null;
   targetEvent: { id: string; title: string | null } | null;
 };
 
@@ -74,9 +104,9 @@ export async function fetchReports(status: ReportStatus = 'open'): Promise<Moder
   const { data, error } = await supabase
     .from('reports')
     .select(
-      `id, reason, status, resolution, created_at,
+      `id, reason, category, detail, status, resolution, created_at,
        reporter:profiles!reports_reporter_id_fkey(username, display_name),
-       targetUser:profiles!reports_target_user_id_fkey(id, username, display_name),
+       targetUser:profiles!reports_target_user_id_fkey(id, username, display_name, shadow_banned),
        targetEvent:events!reports_target_event_id_fkey(id, title)`
     )
     .eq('status', status)
@@ -86,6 +116,8 @@ export async function fetchReports(status: ReportStatus = 'open'): Promise<Moder
   return (data ?? []).map((r: any) => ({
     id: r.id,
     reason: r.reason,
+    category: r.category ?? null,
+    detail: r.detail ?? null,
     status: r.status,
     resolution: r.resolution,
     created_at: r.created_at,

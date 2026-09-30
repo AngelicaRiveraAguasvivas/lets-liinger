@@ -537,7 +537,21 @@ export default function EventDetailScreen() {
           )}
 
           {!!event.description && (
-            <ThemedText style={styles.description}>{event.description}</ThemedText>
+            <ThemedText style={styles.description}>
+              {event.description.split(/(#[A-Za-z0-9_]{1,40})/g).map((part, i) =>
+                part.startsWith('#') ? (
+                  <ThemedText
+                    key={i}
+                    style={[styles.hashtag, { color: colors.accentCyan }]}
+                    onPress={() => router.push(`/?tag=${encodeURIComponent(part.slice(1).toLowerCase())}` as any)}
+                  >
+                    {part}
+                  </ThemedText>
+                ) : (
+                  part
+                )
+              )}
+            </ThemedText>
           )}
 
           <View style={styles.detailItem}>
@@ -841,6 +855,7 @@ const styles = StyleSheet.create({
   coHostResultText: { fontSize: 14, fontWeight: '900' },
   coHostDone: { marginTop: Spacing.three },
   description: { fontSize: 14, fontWeight: '600', marginBottom: Spacing.three, lineHeight: 20 },
+  hashtag: { fontWeight: '900' },
   detailItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one, marginBottom: Spacing.one },
   detailEmoji: { fontSize: 16 },
   detailText: { fontSize: 13, fontWeight: 'bold' },

@@ -20,6 +20,7 @@ import {
   fetchReports,
   moderatorDeleteEvent,
   reviewReport,
+  setShadowBan,
   type ModerationReport,
   type ReportStatus,
 } from '../lib/moderation';
@@ -74,6 +75,13 @@ export default function ModerationScreen() {
     await reviewReport(reportId, selfId, status, resolution);
     setBusyId(null);
     setReports((prev) => prev.filter((r) => r.id !== reportId));
+  }
+
+  async function liftShadowBan(userId: string, reportId: string) {
+    setBusyId(reportId);
+    await setShadowBan(userId, false);
+    setBusyId(null);
+    load(tab);
   }
 
   function handleDeleteEvent(report: ModerationReport) {
@@ -160,9 +168,21 @@ export default function ModerationScreen() {
                   </ThemedText>
                 </View>
 
-                <ThemedText style={styles.target}>{targetLabel}</ThemedText>
+                <View style={styles.tagLine}>
+                  <ThemedText style={styles.target}>{targetLabel}</ThemedText>
+                  {r.category ? (
+                    <View style={[styles.catTag, { borderColor: colors.border, backgroundColor: colors.accentYellow }]}>
+                      <ThemedText style={styles.catTagText}>{r.category}</ThemedText>
+                    </View>
+                  ) : null}
+                  {r.targetUser?.shadow_banned ? (
+                    <View style={[styles.catTag, { borderColor: colors.border, backgroundColor: colors.accentPink }]}>
+                      <ThemedText style={styles.catTagText}>SHADOW-BANNED</ThemedText>
+                    </View>
+                  ) : null}
+                </View>
                 <ThemedText style={styles.reason}>
-                  {r.reason ? `"${r.reason}"` : 'No reason given'}
+                  {r.detail ? `"${r.detail}"` : r.reason ? `"${r.reason}"` : 'No details given'}
                 </ThemedText>
                 <ThemedText style={styles.reporter} themeColor="textSecondary">
                   Reported by {reporter}
@@ -187,6 +207,14 @@ export default function ModerationScreen() {
                           onPress={() => handleDeleteEvent(r)}
                         >
                           <ThemedText style={styles.actionChipDark}>Delete event</ThemedText>
+                        </TouchableOpacity>
+                      )}
+                      {r.targetUser?.shadow_banned && (
+                        <TouchableOpacity
+                          style={[styles.actionChip, { backgroundColor: colors.accentGreen, borderColor: colors.border }]}
+                          onPress={() => liftShadowBan(r.targetUser!.id, r.id)}
+                        >
+                          <ThemedText style={styles.actionChipDark}>Lift shadow-ban</ThemedText>
                         </TouchableOpacity>
                       )}
                       <TouchableOpacity
@@ -231,6 +259,9 @@ const styles = StyleSheet.create({
   card: { padding: Spacing.three },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.two },
   time: { fontSize: 11, fontWeight: '700' },
+  tagLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.one, marginBottom: 2 },
+  catTag: { borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: 1 },
+  catTagText: { fontSize: 9, fontWeight: '900', color: '#000', textTransform: 'uppercase' },
   target: { fontSize: 15, fontWeight: '900', marginBottom: 2 },
   reason: { fontSize: 14, fontWeight: '600', marginBottom: Spacing.one },
   reporter: { fontSize: 12, fontWeight: '700', marginBottom: Spacing.two },
