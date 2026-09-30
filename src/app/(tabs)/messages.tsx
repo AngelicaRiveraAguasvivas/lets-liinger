@@ -13,6 +13,7 @@ import { useTheme } from '@/hooks/use-theme';
 import {
   ConversationSummary, ProfileLite, fetchConversations, profileLabel, searchProfilesByUsername, subscribeToMyMessages,
 } from '@/lib/messages';
+import { GroupConversation, createGroup, fetchGroupConversations } from '@/lib/groups';
 import { supabase } from '../../supabaseClient';
 
 // "Posted 3h ago" style relative label — each screen keeps its own copy,
@@ -39,11 +40,20 @@ export default function MessagesScreen() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [groups, setGroups] = useState<GroupConversation[]>([]);
 
   const [newMessageVisible, setNewMessageVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ProfileLite[]>([]);
   const [searching, setSearching] = useState(false);
+
+  // New-group flow
+  const [newGroupVisible, setNewGroupVisible] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupSearch, setGroupSearch] = useState('');
+  const [groupResults, setGroupResults] = useState<ProfileLite[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<ProfileLite[]>([]);
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
   const fetchAll = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -52,7 +62,9 @@ export default function MessagesScreen() {
       return;
     }
     setUserId(user.id);
-    setConversations(await fetchConversations(user.id));
+    const [convs, grps] = await Promise.all([fetchConversations(user.id), fetchGroupConversations()]);
+    setConversations(convs);
+    setGroups(grps);
     setLoading(false);
   }, []);
 
@@ -87,6 +99,42 @@ export default function MessagesScreen() {
     router.push(`/dm-thread?userId=${otherUserId}`);
   }
 
+  function openNewGroup() {
+    setGroupName(''); setGroupSearch(''); setGroupResults([]); setSelectedMembers([]);
+    setNewGroupVisible(true);
+  }
+
+  async function handleGroupSearch(text: string) {
+    setGroupSearch(text);
+    if (!userId) return;
+    const found = await searchProfilesByUsername(text, userId);
+    const sel = new Set(selectedMembers.map((m) => m.id));
+    setGroupResults(found.filter((p) => !sel.has(p.id)));
+  }
+
+  function toggleMember(p: ProfileLite) {
+    setSelectedMembers((prev) => (prev.some((m) => m.id === p.id) ? prev.filter((m) => m.id !== p.id) : [...prev, p]));
+    setGroupResults((prev) => prev.filter((r) => r.id !== p.id));
+    setGroupSearch('');
+  }
+
+  async function handleCreateGroup() {
+    if (!groupName.trim() || selectedMembers.length === 0) return;
+    setCreatingGroup(true);
+    const tid = await createGroup(groupName.trim(), selectedMembers.map((m) => m.id));
+    setCreatingGroup(false);
+    if (tid) {
+      setNewGroupVisible(false);
+      router.push(`/group-thread?id=${tid}`);
+    }
+  }
+
+  // DMs + groups in one list, most-recent first.
+  const inboxItems = [
+    ...conversations.map((c) => ({ kind: 'dm' as const, time: c.lastCreatedAt || '', c })),
+    ...groups.map((g) => ({ kind: 'group' as const, time: g.lastCreatedAt || '', g })),
+  ].sort((a, b) => b.time.localeCompare(a.time));
+
   const dynamicStyles = useMemo(() => StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: colors.background },
     headerText: {
@@ -102,55 +150,87 @@ export default function MessagesScreen() {
           <ThemedText style={dynamicStyles.headerText}>messages</ThemedText>
         </View>
 
-        <ShadowSurface
-          backgroundColor={colors.accentGreen}
-          radius={14}
-          offset={3}
-          wrapperStyle={styles.newBtnShadow}
-          style={styles.newBtn}
-          onPress={openNewMessage}
-        >
-          <ThemedText style={styles.newBtnText}>+ NEW MESSAGE</ThemedText>
-        </ShadowSurface>
+        <View style={styles.btnRow}>
+          <ShadowSurface
+            backgroundColor={colors.accentGreen}
+            radius={14}
+            offset={3}
+            wrapperStyle={styles.btnFlex}
+            style={styles.newBtn}
+            onPress={openNewMessage}
+          >
+            <ThemedText style={styles.newBtnText}>+ MESSAGE</ThemedText>
+          </ShadowSurface>
+          <ShadowSurface
+            backgroundColor={colors.accentCyan}
+            radius={14}
+            offset={3}
+            wrapperStyle={styles.btnFlex}
+            style={styles.newBtn}
+            onPress={openNewGroup}
+          >
+            <ThemedText style={styles.newBtnText}>+ GROUP</ThemedText>
+          </ShadowSurface>
+        </View>
 
         {loading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="large" color={colors.text} />
           </View>
-        ) : conversations.length === 0 ? (
+        ) : inboxItems.length === 0 ? (
           <ThemedText style={styles.noteText} themeColor="textSecondary">
-            No conversations yet. Tap “+ NEW MESSAGE” to say hi to someone.
+            No conversations yet. Start a message or a group chat above.
           </ThemedText>
         ) : (
-          conversations.map((c) => (
-            <ShadowSurface
-              key={c.otherUserId}
-              backgroundColor={colors.backgroundElement}
-              radius={16}
-              offset={4}
-              borderWidth={2}
-              wrapperStyle={styles.cardShadow}
-              style={styles.card}
-              onPress={() => router.push(`/dm-thread?userId=${c.otherUserId}`)}
-            >
-              <View style={styles.cardRow}>
-                <AvatarBubble url={c.otherProfile?.avatar_url} name={profileLabel(c.otherProfile)} size={44} userId={c.otherUserId} />
-                <View style={styles.cardBody}>
-                  <View style={styles.cardTopRow}>
-                    <ThemedText style={styles.cardName} numberOfLines={1}>
-                      {profileLabel(c.otherProfile)}
-                    </ThemedText>
-                    <ThemedText style={styles.cardTime} themeColor="textSecondary">
-                      {formatRelative(c.lastCreatedAt)}
+          inboxItems.map((item) =>
+            item.kind === 'dm' ? (
+              <ShadowSurface
+                key={`dm-${item.c.otherUserId}`}
+                backgroundColor={colors.backgroundElement}
+                radius={16} offset={4} borderWidth={2}
+                wrapperStyle={styles.cardShadow} style={styles.card}
+                onPress={() => router.push(`/dm-thread?userId=${item.c.otherUserId}`)}
+              >
+                <View style={styles.cardRow}>
+                  <AvatarBubble url={item.c.otherProfile?.avatar_url} name={profileLabel(item.c.otherProfile)} size={44} userId={item.c.otherUserId} />
+                  <View style={styles.cardBody}>
+                    <View style={styles.cardTopRow}>
+                      <ThemedText style={styles.cardName} numberOfLines={1}>{profileLabel(item.c.otherProfile)}</ThemedText>
+                      <ThemedText style={styles.cardTime} themeColor="textSecondary">{formatRelative(item.c.lastCreatedAt)}</ThemedText>
+                    </View>
+                    <ThemedText style={styles.cardPreview} themeColor="textSecondary" numberOfLines={1}>
+                      {item.c.lastMessageMine ? 'You: ' : ''}{item.c.lastContent}
                     </ThemedText>
                   </View>
-                  <ThemedText style={styles.cardPreview} themeColor="textSecondary" numberOfLines={1}>
-                    {c.lastMessageMine ? 'You: ' : ''}{c.lastContent}
-                  </ThemedText>
                 </View>
-              </View>
-            </ShadowSurface>
-          ))
+              </ShadowSurface>
+            ) : (
+              <ShadowSurface
+                key={`g-${item.g.threadId}`}
+                backgroundColor={colors.backgroundElement}
+                radius={16} offset={4} borderWidth={2}
+                wrapperStyle={styles.cardShadow} style={styles.card}
+                onPress={() => router.push(`/group-thread?id=${item.g.threadId}`)}
+              >
+                <View style={styles.cardRow}>
+                  <View style={[styles.groupAvatar, { backgroundColor: colors.accentPink, borderColor: colors.border }]}>
+                    <ThemedText style={styles.groupAvatarText}>{(item.g.name || '?').charAt(0).toUpperCase()}</ThemedText>
+                  </View>
+                  <View style={styles.cardBody}>
+                    <View style={styles.cardTopRow}>
+                      <ThemedText style={styles.cardName} numberOfLines={1}>{item.g.name}</ThemedText>
+                      {item.g.lastCreatedAt ? (
+                        <ThemedText style={styles.cardTime} themeColor="textSecondary">{formatRelative(item.g.lastCreatedAt)}</ThemedText>
+                      ) : null}
+                    </View>
+                    <ThemedText style={styles.cardPreview} themeColor="textSecondary" numberOfLines={1}>
+                      {item.g.lastContent ?? `${item.g.memberCount} members · no messages yet`}
+                    </ThemedText>
+                  </View>
+                </View>
+              </ShadowSurface>
+            )
+          )
         )}
       </ScrollView>
 
@@ -188,6 +268,54 @@ export default function MessagesScreen() {
           </View>
         </SafeAreaView>
       </Modal>
+
+      <Modal visible={newGroupVisible} animationType="slide" onRequestClose={() => setNewGroupVisible(false)}>
+        <SafeAreaView style={dynamicStyles.safeArea} edges={['top', 'left', 'right']}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setNewGroupVisible(false)}>
+                <ThemedText style={styles.modalCancel}>Cancel</ThemedText>
+              </TouchableOpacity>
+              <ThemedText style={styles.modalTitle}>New group</ThemedText>
+              <TouchableOpacity
+                onPress={handleCreateGroup}
+                disabled={creatingGroup || !groupName.trim() || selectedMembers.length === 0}
+              >
+                <ThemedText style={[styles.modalCreate, { color: (!groupName.trim() || selectedMembers.length === 0) ? colors.textSecondary : colors.accentCyan }]}>
+                  {creatingGroup ? '…' : 'Create'}
+                </ThemedText>
+              </TouchableOpacity>
+            </View>
+
+            <TextField label="Group name" autoFocus value={groupName} onChangeText={setGroupName} />
+
+            {selectedMembers.length > 0 && (
+              <View style={styles.chipWrap}>
+                {selectedMembers.map((m) => (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.memberChip, { backgroundColor: colors.accentCyan, borderColor: colors.border }]}
+                    onPress={() => toggleMember(m)}
+                  >
+                    <ThemedText style={styles.memberChipText}>{profileLabel(m)} ✕</ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            <TextField label="Add people by username" autoCapitalize="none" value={groupSearch} onChangeText={handleGroupSearch} />
+
+            <ScrollView style={styles.resultsList} keyboardShouldPersistTaps="handled">
+              {groupResults.map((p) => (
+                <TouchableOpacity key={p.id} style={styles.resultRow} onPress={() => toggleMember(p)}>
+                  <AvatarBubble url={p.avatar_url} name={profileLabel(p)} size={32} />
+                  <ThemedText style={styles.resultText}>{profileLabel(p)}</ThemedText>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -198,9 +326,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginBottom: Spacing.three,
   },
-  newBtnShadow: { marginBottom: Spacing.three },
+  btnRow: { flexDirection: 'row', gap: Spacing.two, marginBottom: Spacing.three },
+  btnFlex: { flex: 1 },
   newBtn: { paddingVertical: Spacing.two, alignItems: 'center' },
   newBtnText: { fontWeight: '900', color: '#000', fontSize: 14 },
+  groupAvatar: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  groupAvatarText: { fontSize: 18, fontWeight: '900', color: '#000' },
+  modalCreate: { fontSize: 15, fontWeight: '900', width: 56, textAlign: 'right' },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.two },
+  memberChip: { borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.three, paddingVertical: 5 },
+  memberChipText: { fontSize: 12, fontWeight: '900', color: '#000' },
   loadingWrap: { paddingVertical: Spacing.six, alignItems: 'center' },
   noteText: { fontSize: 13, fontWeight: '600' },
   cardShadow: { marginBottom: Spacing.two },
