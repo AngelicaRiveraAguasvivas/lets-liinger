@@ -24,6 +24,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useUserCoords } from '@/hooks/use-user-coords';
 import { EVENT_CATEGORIES, categoryColor, categoryLabel } from '@/lib/categories';
 import { getUnreadNotificationCount } from '@/lib/notifications';
+import { cancelRsvp, rsvpToEvent } from '@/lib/rsvp';
 import { getFollowingIds } from '../../lib/follows';
 import { getBlockedIds } from '../../lib/moderation';
 import type { Coords } from '../../lib/places';
@@ -287,11 +288,12 @@ export default function HomeScreen() {
       )
     );
 
-    const { error } = wasRsvped
-      ? await supabase.from('rsvps').delete().eq('event_id', ev.id).eq('user_id', userId)
-      : await supabase.from('rsvps').insert({ event_id: ev.id, user_id: userId });
-
-    if (error) setEvents(prevEvents);
+    try {
+      if (wasRsvped) await cancelRsvp(ev.id);
+      else await rsvpToEvent(ev.id, 0);
+    } catch {
+      setEvents(prevEvents);
+    }
   }
 
   async function toggleLike(ev: EnrichedEvent) {
@@ -334,6 +336,7 @@ export default function HomeScreen() {
       cover_url: values.coverUrl,
       category: values.category,
       visibility: values.visibility,
+      capacity: values.capacity,
       school,
     });
 

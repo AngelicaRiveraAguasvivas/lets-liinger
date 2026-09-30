@@ -14,8 +14,11 @@ import { addToCalendar, saveEvent, shareEvent, unsaveEvent } from '../lib/events
 import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { getFollowingIds } from '../lib/follows';
+import { getFollowingIds, PublicProfile, searchProfiles } from '../lib/follows';
 import { checkClean } from '../lib/profanity';
+import {
+  addCoHost, cancelRsvp, EventAttendance, getCoHosts, removeCoHost, rsvpToEvent, summarizeRsvps,
+} from '../lib/rsvp';
 import { supabase } from '../supabaseClient';
 
 interface Comment {
@@ -51,6 +54,7 @@ interface EventDetail {
   category: string | null;
   visibility: string | null;
   school: string | null;
+  capacity: number | null;
 }
 
 export default function EventDetailScreen() {
@@ -66,6 +70,15 @@ export default function EventDetailScreen() {
   const [likedByMe, setLikedByMe] = useState(false);
   const [rsvpers, setRsvpers] = useState<Attendee[]>([]);
   const [rsvpedByMe, setRsvpedByMe] = useState(false);
+  const [attendance, setAttendance] = useState<EventAttendance>({
+    capacity: null, headcount: 0, goingRows: 0, waitlistCount: 0, myStatus: null, myGuests: 0, isFull: false,
+  });
+  const [guests, setGuests] = useState(0);
+  const [coHosts, setCoHosts] = useState<PublicProfile[]>([]);
+  const [isCoHost, setIsCoHost] = useState(false);
+  const [coHostModal, setCoHostModal] = useState(false);
+  const [coHostQuery, setCoHostQuery] = useState('');
+  const [coHostResults, setCoHostResults] = useState<PublicProfile[]>([]);
   const [saved, setSaved] = useState(false);
   const [shareMsg, setShareMsg] = useState('');
   const [friendsGoing, setFriendsGoing] = useState<string[]>([]);
@@ -91,13 +104,13 @@ export default function EventDetailScreen() {
     const [eventRes, likesRes, rsvpsRes, commentsRes, profRes] = await Promise.all([
       supabase
         .from('events')
-        .select('id, title, description, location, event_time, host, created_at, created_by, latitude, longitude, cover_url, category, visibility, school, creator:profiles!events_created_by_fkey(username, display_name, avatar_url)')
+        .select('id, title, description, location, event_time, host, created_at, created_by, latitude, longitude, cover_url, category, visibility, school, capacity, creator:profiles!events_created_by_fkey(username, display_name, avatar_url)')
         .eq('id', id)
         .single(),
       supabase.from('event_likes').select('user_id').eq('event_id', id),
       supabase
         .from('rsvps')
-        .select('user_id, profile:profiles!rsvps_user_id_fkey(username, display_name, avatar_url)')
+        .select('user_id, guest_count, status, profile:profiles!rsvps_user_id_fkey(username, display_name, avatar_url)')
         .eq('event_id', id),
       supabase
         .from('event_comments')
@@ -147,6 +160,7 @@ export default function EventDetailScreen() {
         category: e.category ?? null,
         visibility: e.visibility ?? null,
         school: e.school ?? null,
+        capacity: e.capacity ?? null,
       });
     }
 
@@ -155,15 +169,26 @@ export default function EventDetailScreen() {
     setLikedByMe(!!user && likes.some((l) => l.user_id === user.id));
 
     const rsvps = rsvpsRes.data ?? [];
+    const cap = (eventRes.data as any)?.capacity ?? null;
+    const att = summarizeRsvps(rsvps as any[], cap, user?.id ?? null);
+    setAttendance(att);
+    setGuests(att.myGuests);
+    setRsvpedByMe(att.myStatus !== null);
+
+    // "Who's going" shows confirmed attendees only (waitlisters are counted
+    // separately), with a "+N" suffix when they're bringing guests.
     const attendees: Attendee[] = rsvps
-      .map((r: any) => ({
-        userId: r.user_id,
-        label: r.profile?.username ? `@${r.profile.username}` : r.profile?.display_name,
-        avatarUrl: r.profile?.avatar_url ?? null,
-      }))
+      .filter((r: any) => r.status !== 'waitlist')
+      .map((r: any) => {
+        const base = r.profile?.username ? `@${r.profile.username}` : r.profile?.display_name;
+        return {
+          userId: r.user_id,
+          label: base ? (r.guest_count > 0 ? `${base} +${r.guest_count}` : base) : base,
+          avatarUrl: r.profile?.avatar_url ?? null,
+        };
+      })
       .filter((r) => !!r.label);
     setRsvpers(attendees);
-    setRsvpedByMe(!!user && rsvps.some((r) => r.user_id === user.id));
 
     if (user) {
       const { count } = await supabase
@@ -193,6 +218,10 @@ export default function EventDetailScreen() {
       }))
     );
 
+    const cohosts = await getCoHosts(id);
+    setCoHosts(cohosts);
+    setIsCoHost(!!user && cohosts.some((c) => c.id === user.id));
+
     setLoading(false);
   }, [id]);
 
@@ -204,12 +233,43 @@ export default function EventDetailScreen() {
 
   async function toggleRsvp() {
     if (!userId || !id) return;
-    if (rsvpedByMe) {
-      await supabase.from('rsvps').delete().eq('event_id', id).eq('user_id', userId);
-    } else {
-      await supabase.from('rsvps').insert({ event_id: id, user_id: userId });
-    }
+    if (attendance.myStatus) await cancelRsvp(id);
+    else await rsvpToEvent(id, guests);
     fetchAll();
+  }
+
+  async function changeGuests(delta: number) {
+    const next = Math.max(0, Math.min(10, guests + delta));
+    setGuests(next);
+    // If I'm already in, re-submit so capacity/waitlist re-evaluates live.
+    if (attendance.myStatus && id) {
+      await rsvpToEvent(id, next);
+      fetchAll();
+    }
+  }
+
+  async function handleAddCoHost(u: PublicProfile) {
+    if (!id || !userId) return;
+    await addCoHost(id, u.id, userId);
+    setCoHostModal(false);
+    setCoHostQuery('');
+    setCoHostResults([]);
+    fetchAll();
+  }
+
+  async function handleRemoveCoHost(uid: string) {
+    if (!id) return;
+    await removeCoHost(id, uid);
+    fetchAll();
+  }
+
+  async function runCoHostSearch(text: string) {
+    setCoHostQuery(text);
+    const q = text.trim();
+    if (!q) { setCoHostResults([]); return; }
+    const found = await searchProfiles(q, userId);
+    const existing = new Set(coHosts.map((c) => c.id));
+    setCoHostResults(found.filter((p) => !existing.has(p.id) && p.id !== event?.createdBy));
   }
 
   async function toggleSave() {
@@ -268,6 +328,7 @@ export default function EventDetailScreen() {
   }
 
   const isOwner = !!userId && !!event?.createdBy && userId === event.createdBy;
+  const canEdit = isOwner || isCoHost;
 
   const editInitialValues: EventFormInitialValues | undefined = event
     ? {
@@ -281,6 +342,7 @@ export default function EventDetailScreen() {
         coverUrl: event.coverUrl,
         category: event.category,
         visibility: event.visibility,
+        capacity: event.capacity,
       }
     : undefined;
 
@@ -298,6 +360,7 @@ export default function EventDetailScreen() {
         cover_url: values.coverUrl,
         category: values.category,
         visibility: values.visibility,
+        capacity: values.capacity,
       })
       .eq('id', id);
 
@@ -398,10 +461,10 @@ export default function EventDetailScreen() {
             <ThemedText style={dynamicStyles.headerText}>‹ back</ThemedText>
           </TouchableOpacity>
 
-          {isOwner && (
+          {canEdit && (
             <View style={styles.ownerActions}>
               <IconButton emoji="✏️" onPress={() => setEditVisible(true)} />
-              <IconButton emoji="🗑️" onPress={() => { setDeleteError(''); setDeleteVisible(true); }} />
+              {isOwner && <IconButton emoji="🗑️" onPress={() => { setDeleteError(''); setDeleteVisible(true); }} />}
             </View>
           )}
         </View>
@@ -441,6 +504,38 @@ export default function EventDetailScreen() {
             </TouchableOpacity>
           </View>
 
+          {(coHosts.length > 0 || isOwner) && (
+            <View style={styles.coHostRow}>
+              <ThemedText style={styles.metaLabel}>CO-HOSTS:</ThemedText>
+              {coHosts.map((c) => (
+                <View key={c.id} style={[styles.coHostChip, { borderColor: colors.border }]}>
+                  <TouchableOpacity
+                    style={styles.hostChip}
+                    onPress={() => c.id !== userId && router.push(`/user?id=${c.id}`)}
+                    disabled={c.id === userId}
+                    activeOpacity={0.7}
+                  >
+                    <AvatarBubble url={c.avatar_url} name={c.display_name || c.username || '?'} size={20} />
+                    <ThemedText style={styles.metaValue}>@{c.username || 'user'}</ThemedText>
+                  </TouchableOpacity>
+                  {isOwner && (
+                    <TouchableOpacity onPress={() => handleRemoveCoHost(c.id)} hitSlop={8}>
+                      <ThemedText style={[styles.coHostRemove, { color: colors.accentPink }]}>✕</ThemedText>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              {isOwner && (
+                <TouchableOpacity
+                  style={[styles.addCoHostBtn, { borderColor: colors.border }]}
+                  onPress={() => { setCoHostQuery(''); setCoHostResults([]); setCoHostModal(true); }}
+                >
+                  <ThemedText style={styles.addCoHostText}>＋ Add</ThemedText>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
           {!!event.description && (
             <ThemedText style={styles.description}>{event.description}</ThemedText>
           )}
@@ -450,6 +545,14 @@ export default function EventDetailScreen() {
           </View>
           <View style={styles.detailItem}>
             <ThemedText style={styles.detailText}>{formatEventTime(event.event_time)}</ThemedText>
+          </View>
+          <View style={styles.detailItem}>
+            <ThemedText style={styles.detailText}>
+              {attendance.capacity != null
+                ? `${attendance.headcount}/${attendance.capacity} spots filled`
+                : `${attendance.headcount} going`}
+              {attendance.waitlistCount > 0 ? ` · ${attendance.waitlistCount} waitlisted` : ''}
+            </ThemedText>
           </View>
 
           {event.createdBy && event.createdBy !== userId ? (
@@ -470,12 +573,33 @@ export default function EventDetailScreen() {
             </ThemedText>
           )}
 
+          <View style={styles.guestRow}>
+            <ThemedText style={styles.guestLabel}>Bringing guests?</ThemedText>
+            <View style={styles.stepper}>
+              <TouchableOpacity style={[styles.stepBtn, { borderColor: colors.border }]} onPress={() => changeGuests(-1)}>
+                <ThemedText style={styles.stepText}>−</ThemedText>
+              </TouchableOpacity>
+              <ThemedText style={styles.guestCount}>{guests}</ThemedText>
+              <TouchableOpacity style={[styles.stepBtn, { borderColor: colors.border }]} onPress={() => changeGuests(1)}>
+                <ThemedText style={styles.stepText}>＋</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <View style={styles.actionsRow}>
             <TouchableOpacity
-              style={[dynamicStyles.actionBtn, { backgroundColor: rsvpedByMe ? colors.accentGreen : colors.accentYellow }]}
+              style={[dynamicStyles.actionBtn, {
+                backgroundColor: attendance.myStatus === 'going' ? colors.accentGreen
+                  : attendance.myStatus === 'waitlist' ? colors.accentCyan
+                  : colors.accentYellow,
+              }]}
               onPress={toggleRsvp}
             >
-              <ThemedText style={styles.buttonText}>{rsvpedByMe ? "✓ RSVP'D!" : 'RSVP'}</ThemedText>
+              <ThemedText style={styles.buttonText}>
+                {attendance.myStatus === 'going' ? "✓ GOING"
+                  : attendance.myStatus === 'waitlist' ? '✓ ON WAITLIST'
+                  : attendance.isFull ? 'JOIN WAITLIST' : 'RSVP'}
+              </ThemedText>
             </TouchableOpacity>
             <TouchableOpacity
               style={[dynamicStyles.actionBtn, { backgroundColor: likedByMe ? colors.accentPink : colors.accentCyan, flex: 0.5 }]}
@@ -510,7 +634,7 @@ export default function EventDetailScreen() {
           ) : null}
         </ShadowSurface>
 
-        <ThemedText style={styles.sectionTitle}>WHO&apos;S GOING ({rsvpers.length})</ThemedText>
+        <ThemedText style={styles.sectionTitle}>WHO&apos;S GOING ({attendance.headcount})</ThemedText>
         {rsvpers.length === 0 ? (
           <ThemedText style={styles.noteText} themeColor="textSecondary">No RSVPs yet — be the first!</ThemedText>
         ) : (
@@ -605,6 +729,39 @@ export default function EventDetailScreen() {
         </View>
       </Modal>
 
+      {/* Add co-host */}
+      <Modal visible={coHostModal} transparent animationType="fade" onRequestClose={() => setCoHostModal(false)}>
+        <View style={styles.deleteOverlay}>
+          <View style={dynamicStyles.deleteCard}>
+            <ThemedText style={styles.deleteTitle}>Add a co-host</ThemedText>
+            <ThemedText style={styles.deleteBody} themeColor="textSecondary">Co-hosts can edit this event with you.</ThemedText>
+            <TextInput
+              style={dynamicStyles.commentInput}
+              placeholder="Search @username or name…"
+              placeholderTextColor={colors.textSecondary}
+              value={coHostQuery}
+              onChangeText={runCoHostSearch}
+              autoCapitalize="none"
+            />
+            <View style={styles.coHostResults}>
+              {coHostResults.map((p) => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[styles.coHostResultRow, { borderColor: colors.border }]}
+                  onPress={() => handleAddCoHost(p)}
+                >
+                  <AvatarBubble url={p.avatar_url} name={p.display_name || p.username || '?'} size={28} />
+                  <ThemedText style={styles.coHostResultText}>@{p.username || 'user'}</ThemedText>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity style={[dynamicStyles.deleteCancelBtn, styles.coHostDone]} onPress={() => setCoHostModal(false)}>
+              <ThemedText style={styles.deleteCancelText}>Done</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <EventFormModal
         visible={editVisible}
         mode="edit"
@@ -668,6 +825,21 @@ const styles = StyleSheet.create({
   metaLabel: { fontSize: 11, fontWeight: 'bold', opacity: 0.6 },
   metaValue: { fontSize: 12, fontWeight: '900' },
   hostChip: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
+  coHostRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.two, marginBottom: Spacing.two },
+  coHostChip: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one, borderWidth: 2, borderRadius: 999, paddingLeft: 3, paddingRight: Spacing.two, paddingVertical: 2 },
+  coHostRemove: { fontSize: 13, fontWeight: '900' },
+  addCoHostBtn: { borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: 4 },
+  addCoHostText: { fontSize: 12, fontWeight: '900' },
+  guestRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.three },
+  guestLabel: { fontSize: 13, fontWeight: '800' },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  stepBtn: { width: 32, height: 32, borderWidth: 2, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  stepText: { fontSize: 18, fontWeight: '900' },
+  guestCount: { fontSize: 16, fontWeight: '900', minWidth: 18, textAlign: 'center' },
+  coHostResults: { marginTop: Spacing.two, gap: Spacing.one },
+  coHostResultRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 2, borderRadius: 12, padding: Spacing.two },
+  coHostResultText: { fontSize: 14, fontWeight: '900' },
+  coHostDone: { marginTop: Spacing.three },
   description: { fontSize: 14, fontWeight: '600', marginBottom: Spacing.three, lineHeight: 20 },
   detailItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one, marginBottom: Spacing.one },
   detailEmoji: { fontSize: 16 },

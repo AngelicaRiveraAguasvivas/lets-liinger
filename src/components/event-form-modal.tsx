@@ -34,6 +34,7 @@ export interface EventFormInitialValues {
   coverUrl?: string | null;
   category?: string | null;
   visibility?: string | null;
+  capacity?: number | null;
 }
 
 export interface EventFormSubmitValues {
@@ -45,6 +46,7 @@ export interface EventFormSubmitValues {
   coverUrl: string | null;
   category: string | null;
   visibility: string;
+  capacity: number | null;
 }
 
 interface EventFormModalProps {
@@ -101,6 +103,7 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<'school' | 'public'>('school');
+  const [capacity, setCapacity] = useState('');
   const [coverMenuVisible, setCoverMenuVisible] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -130,6 +133,7 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
     setCoverUrl(initialValues?.coverUrl ?? null);
     setCategory(initialValues?.category ?? null);
     setVisibility((initialValues?.visibility as 'school' | 'public') ?? 'school');
+    setCapacity(initialValues?.capacity != null ? String(initialValues.capacity) : '');
     setFormError('');
     place.reset(parseInitialPlace(initialValues));
     // Pull the clubs the user belongs to (from their profile) so they show up
@@ -165,6 +169,8 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
       return;
     }
 
+    const capNum = capacity.trim() ? parseInt(capacity, 10) : NaN;
+
     setSaving(true);
     const result = await onSubmit({
       title: title.trim(),
@@ -175,6 +181,7 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
       coverUrl,
       category,
       visibility,
+      capacity: Number.isFinite(capNum) && capNum > 0 ? capNum : null,
     });
     setSaving(false);
 
@@ -279,6 +286,14 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
               <ThemedText style={[styles.visText, visibility === 'public' && { color: '#000' }]}>Everyone</ThemedText>
             </TouchableOpacity>
           </View>
+
+          <TextField
+            label="Max spots (optional)"
+            placeholder="e.g. 50 — blank means unlimited"
+            keyboardType="number-pad"
+            value={capacity}
+            onChangeText={setCapacity}
+          />
 
           <ThemedText style={styles.label} themeColor="accentCyan">Date</ThemedText>
           <DateTimeField mode="date" value={date} onChange={setDate} placeholder="Pick a date" colors={theme} />
