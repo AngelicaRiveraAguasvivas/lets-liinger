@@ -123,7 +123,7 @@ export default function AuthScreen() {
             See what&apos;s happenin
           </ThemedText>
 
-          <TextField label="Email" placeholder="you@school.edu" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" value={email} onChangeText={setEmail} />
+          <TextField label="Email" placeholder="you@email.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" value={email} onChangeText={setEmail} />
           <TextField label="Password" secureTextEntry value={password} onChangeText={setPassword} />
 
           <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotRow}>
@@ -178,7 +178,7 @@ export default function AuthScreen() {
           </ShadowSurface>
 
           <ThemedText style={styles.schoolNote} themeColor="textSecondary">
-            New here? Sign up with your school email — LetsLiinger is students only.
+            New here? Sign up with your email and pick your campus.
           </ThemedText>
 
           <ShadowSurface

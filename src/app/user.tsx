@@ -10,7 +10,7 @@ import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { followUser, getFollowCounts, getMutualFollowers, isFollowing as checkFollowing, unfollowUser } from '../lib/follows';
-import { blockUser, getMyBlockedIds, reportUser, unblockUser } from '../lib/moderation';
+import { blockUser, getBlockedIds, getMyBlockedIds, reportUser, unblockUser } from '../lib/moderation';
 import { supabase } from '../supabaseClient';
 
 interface ViewProfile {
@@ -42,6 +42,8 @@ export default function UserProfileScreen() {
   const [busy, setBusy] = useState(false);
   const [mutuals, setMutuals] = useState<{ names: string[]; count: number }>({ names: [], count: 0 });
   const [blocked, setBlocked] = useState(false);
+  const [blockedEither, setBlockedEither] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [menuVisible, setMenuVisible] = useState(false);
   const [reported, setReported] = useState(false);
   const [hosting, setHosting] = useState<{ id: string; title: string; location: string | null }[]>([]);
@@ -61,19 +63,37 @@ export default function UserProfileScreen() {
         }
         setSelfId(user?.id ?? null);
 
-        const [profRes, c, isF, mut, myBlocked] = await Promise.all([
+        // Block check first, in BOTH directions. If either of us blocked the
+        // other, we don't load or show their profile / events at all.
+        const [myBlocked, allBlocked] = await Promise.all([
+          user ? getMyBlockedIds(user.id) : Promise.resolve(new Set<string>()),
+          user ? getBlockedIds(user.id) : Promise.resolve(new Set<string>()),
+        ]);
+        if (cancelled) return;
+        setBlocked(myBlocked.has(id));
+        const either = allBlocked.has(id);
+        setBlockedEither(either);
+        if (either) {
+          // Fetch only the username so an "Unblock" card can name who *you*
+          // blocked; skip counts, events, everything else.
+          const { data: minimal } = await supabase.from('profiles').select('id, username, display_name').eq('id', id).single();
+          if (cancelled) return;
+          setProfile(minimal ? ({ ...(minimal as any), is_private: null } as ViewProfile) : null);
+          setLoading(false);
+          return;
+        }
+
+        const [profRes, c, isF, mut] = await Promise.all([
           supabase.from('profiles').select('id, display_name, username, bio, avatar_url, interests, extracurriculars, university, major, minor, grad_year, cohort, is_private').eq('id', id).single(),
           getFollowCounts(id),
           user ? checkFollowing(user.id, id) : Promise.resolve(false),
           user ? getMutualFollowers(user.id, id) : Promise.resolve({ names: [], count: 0 }),
-          user ? getMyBlockedIds(user.id) : Promise.resolve(new Set<string>()),
         ]);
         if (cancelled) return;
         if (!profRes.error) setProfile(profRes.data as ViewProfile);
         setCounts(c);
         setFollowing(isF);
         setMutuals(mut);
-        setBlocked(myBlocked.has(id));
 
         const [hostRes, goRes] = await Promise.all([
           supabase.from('events').select('id, title, location').eq('created_by', id).order('created_at', { ascending: false }).limit(10),
@@ -85,7 +105,7 @@ export default function UserProfileScreen() {
         setLoading(false);
       })();
       return () => { cancelled = true; };
-    }, [id])
+    }, [id, reloadKey])
   );
 
   async function toggleFollow() {
@@ -109,6 +129,7 @@ export default function UserProfileScreen() {
     if (blocked) {
       setBlocked(false);
       await unblockUser(selfId, id);
+      setReloadKey((k) => k + 1); // re-load the now-visible profile
     } else {
       setBlocked(true);
       setFollowing(false);
@@ -141,6 +162,45 @@ export default function UserProfileScreen() {
         <View style={styles.content}>
           <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}><ThemedText style={[styles.back, { color: colors.text }]}>‹ back</ThemedText></TouchableOpacity>
           <ThemedText style={styles.note} themeColor="textSecondary">Profile not found.</ThemedText>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Blocked in either direction → never show their page. If YOU blocked them,
+  // offer an Unblock; if they blocked you, it's simply unavailable.
+  if (blockedEither) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+        <View style={styles.content}>
+          <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
+            <ThemedText style={[styles.back, { color: colors.text }]}>‹ back</ThemedText>
+          </TouchableOpacity>
+          <ShadowSurface backgroundColor={colors.backgroundElement} radius={24} offset={6} wrapperStyle={styles.mb4} style={styles.card}>
+            {blocked ? (
+              <>
+                <ThemedText style={styles.userName}>BLOCKED</ThemedText>
+                <ThemedText style={styles.note} themeColor="textSecondary">
+                  You blocked @{profile.username || 'this account'}. They can’t see your profile or message you, and you can’t see theirs.
+                </ThemedText>
+                <ShadowSurface
+                  backgroundColor={colors.accentPink}
+                  radius={14} offset={3}
+                  wrapperStyle={styles.mb4} style={styles.followBtn}
+                  onPress={handleBlock}
+                >
+                  <ThemedText style={[styles.followText, { color: '#000' }]}>UNBLOCK</ThemedText>
+                </ShadowSurface>
+              </>
+            ) : (
+              <>
+                <ThemedText style={styles.userName}>UNAVAILABLE</ThemedText>
+                <ThemedText style={styles.note} themeColor="textSecondary">
+                  This account is unavailable.
+                </ThemedText>
+              </>
+            )}
+          </ShadowSurface>
         </View>
       </SafeAreaView>
     );

@@ -34,10 +34,8 @@ export async function resolveSchoolFromEmail(email: string): Promise<SchoolResol
   const match = (data ?? []).find((s: any) => domain === s.domain || domain.endsWith(`.${s.domain}`));
   if (match) return { status: 'known', school: match.name };
 
-  if (ACADEMIC_TLD.test(domain)) return { status: 'academic' };
-
-  return {
-    status: 'rejected',
-    message: 'Use your school email to sign up (e.g. you@ucsc.edu). This keeps LetsLiinger students-only.',
-  };
+  // Any other email is allowed too — the user picks their school during
+  // onboarding. (Known .edu/.ac domains above still auto-assign + lock the
+  // school; everyone else simply chooses it.)
+  return { status: 'academic' };
 }
