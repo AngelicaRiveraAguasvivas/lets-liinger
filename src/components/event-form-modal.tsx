@@ -47,7 +47,17 @@ export interface EventFormSubmitValues {
   category: string | null;
   visibility: string;
   capacity: number | null;
+  recurrence: 'none' | 'daily' | 'weekly' | 'monthly';
+  recurrenceCount: number;
 }
+
+type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly';
+const RECURRENCE_OPTIONS: { key: Recurrence; label: string }[] = [
+  { key: 'none', label: 'Does not repeat' },
+  { key: 'daily', label: 'Daily' },
+  { key: 'weekly', label: 'Weekly' },
+  { key: 'monthly', label: 'Monthly' },
+];
 
 interface EventFormModalProps {
   visible: boolean;
@@ -104,6 +114,8 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
   const [category, setCategory] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<'school' | 'public'>('school');
   const [capacity, setCapacity] = useState('');
+  const [recurrence, setRecurrence] = useState<Recurrence>('none');
+  const [recurrenceCount, setRecurrenceCount] = useState('4');
   const [coverMenuVisible, setCoverMenuVisible] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -134,6 +146,8 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
     setCategory(initialValues?.category ?? null);
     setVisibility((initialValues?.visibility as 'school' | 'public') ?? 'school');
     setCapacity(initialValues?.capacity != null ? String(initialValues.capacity) : '');
+    setRecurrence('none');
+    setRecurrenceCount('4');
     setFormError('');
     place.reset(parseInitialPlace(initialValues));
     // Pull the clubs the user belongs to (from their profile) so they show up
@@ -182,6 +196,8 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
       category,
       visibility,
       capacity: Number.isFinite(capNum) && capNum > 0 ? capNum : null,
+      recurrence,
+      recurrenceCount: Math.min(52, Math.max(1, parseInt(recurrenceCount, 10) || 1)),
     });
     setSaving(false);
 
@@ -300,6 +316,32 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
 
           <ThemedText style={styles.label} themeColor="accentCyan">Time (optional)</ThemedText>
           <DateTimeField mode="time" value={time} onChange={setTime} placeholder="Pick a time" colors={theme} />
+
+          {mode === 'create' && (
+            <>
+              <ThemedText style={styles.label} themeColor="accentCyan">Repeats</ThemedText>
+              <View style={styles.clubSuggest}>
+                {RECURRENCE_OPTIONS.map((r) => (
+                  <TouchableOpacity
+                    key={r.key}
+                    onPress={() => setRecurrence(r.key)}
+                    style={[styles.catChip, { borderColor: theme.border, backgroundColor: recurrence === r.key ? theme.accentGreen : theme.backgroundElement }]}
+                  >
+                    <ThemedText style={[styles.catChipText, recurrence === r.key && { color: '#000' }]}>{r.label}</ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {recurrence !== 'none' && (
+                <TextField
+                  label={`How many ${recurrence === 'daily' ? 'days' : recurrence === 'weekly' ? 'weeks' : 'months'}?`}
+                  placeholder="e.g. 4"
+                  keyboardType="number-pad"
+                  value={recurrenceCount}
+                  onChangeText={setRecurrenceCount}
+                />
+              )}
+            </>
+          )}
 
           {formError ? <ThemedText style={styles.error}>{formError}</ThemedText> : null}
 

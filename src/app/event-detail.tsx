@@ -6,6 +6,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarBubble } from '@/components/avatar-bubble';
+import { CheckinPass } from '@/components/checkin-pass';
+import { CheckinScanner } from '@/components/checkin-scanner';
 import { EventFormInitialValues, EventFormModal, EventFormSubmitValues } from '@/components/event-form-modal';
 import { ThemedText } from '@/components/themed-text';
 import { IconButton } from '@/components/ui/icon-button';
@@ -16,6 +18,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { getFollowingIds, PublicProfile, searchProfiles } from '../lib/follows';
 import { checkClean } from '../lib/profanity';
+import { checkIn, getCheckedInIds, undoCheckIn } from '../lib/checkin';
 import {
   addCoHost, cancelRsvp, EventAttendance, getCoHosts, removeCoHost, rsvpToEvent, summarizeRsvps,
 } from '../lib/rsvp';
@@ -79,6 +82,9 @@ export default function EventDetailScreen() {
   const [coHostModal, setCoHostModal] = useState(false);
   const [coHostQuery, setCoHostQuery] = useState('');
   const [coHostResults, setCoHostResults] = useState<PublicProfile[]>([]);
+  const [checkedIn, setCheckedIn] = useState<Set<string>>(new Set());
+  const [passVisible, setPassVisible] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(false);
   const [saved, setSaved] = useState(false);
   const [shareMsg, setShareMsg] = useState('');
   const [friendsGoing, setFriendsGoing] = useState<string[]>([]);
@@ -221,6 +227,7 @@ export default function EventDetailScreen() {
     const cohosts = await getCoHosts(id);
     setCoHosts(cohosts);
     setIsCoHost(!!user && cohosts.some((c) => c.id === user.id));
+    setCheckedIn(await getCheckedInIds(id));
 
     setLoading(false);
   }, [id]);
@@ -270,6 +277,19 @@ export default function EventDetailScreen() {
     const found = await searchProfiles(q, userId);
     const existing = new Set(coHosts.map((c) => c.id));
     setCoHostResults(found.filter((p) => !existing.has(p.id) && p.id !== event?.createdBy));
+  }
+
+  async function toggleCheckin(uid: string) {
+    if (!id) return;
+    const next = new Set(checkedIn);
+    if (next.has(uid)) { next.delete(uid); setCheckedIn(next); await undoCheckIn(id, uid); }
+    else { next.add(uid); setCheckedIn(next); await checkIn(id, uid); }
+  }
+
+  async function onScanned(uid: string) {
+    if (!id) return;
+    const next = new Set(checkedIn); next.add(uid); setCheckedIn(next);
+    await checkIn(id, uid);
   }
 
   async function toggleSave() {
@@ -646,6 +666,15 @@ export default function EventDetailScreen() {
           {shareMsg ? (
             <ThemedText style={styles.shareMsg} themeColor="accentCyan">{shareMsg}</ThemedText>
           ) : null}
+
+          {attendance.myStatus === 'going' && !isOwner && !isCoHost ? (
+            <TouchableOpacity
+              style={[styles.passBtn, { borderColor: colors.border, backgroundColor: colors.accentCyan }]}
+              onPress={() => setPassVisible(true)}
+            >
+              <ThemedText style={styles.buttonText}>Show my check-in pass</ThemedText>
+            </TouchableOpacity>
+          ) : null}
         </ShadowSurface>
 
         <ThemedText style={styles.sectionTitle}>WHO&apos;S GOING ({attendance.headcount})</ThemedText>
@@ -666,6 +695,35 @@ export default function EventDetailScreen() {
               </TouchableOpacity>
             ))}
           </View>
+        )}
+
+        {canEdit && rsvpers.length > 0 && (
+          <>
+            <View style={styles.checkinHeader}>
+              <ThemedText style={styles.sectionTitle}>CHECK-IN ({checkedIn.size}/{attendance.goingRows})</ThemedText>
+              <TouchableOpacity
+                style={[styles.scanBtn, { borderColor: colors.border, backgroundColor: colors.accentGreen }]}
+                onPress={() => setScannerVisible(true)}
+              >
+                <ThemedText style={styles.scanBtnText}>Scan passes</ThemedText>
+              </TouchableOpacity>
+            </View>
+            {rsvpers.map((r) => {
+              const inn = checkedIn.has(r.userId);
+              return (
+                <TouchableOpacity
+                  key={`ci-${r.userId}`}
+                  style={[styles.checkinRow, { borderColor: colors.border, backgroundColor: inn ? colors.accentGreen : 'transparent' }]}
+                  onPress={() => toggleCheckin(r.userId)}
+                  activeOpacity={0.7}
+                >
+                  <AvatarBubble url={r.avatarUrl} name={r.label} size={26} />
+                  <ThemedText style={styles.checkinName} numberOfLines={1}>{r.label}</ThemedText>
+                  <ThemedText style={[styles.checkinMark, inn && { color: '#000' }]}>{inn ? '✓ In' : 'Check in'}</ThemedText>
+                </TouchableOpacity>
+              );
+            })}
+          </>
         )}
 
         <ThemedText style={styles.sectionTitle}>COMMENTS ({comments.length})</ThemedText>
@@ -776,6 +834,22 @@ export default function EventDetailScreen() {
         </View>
       </Modal>
 
+      {userId && (
+        <CheckinPass
+          visible={passVisible}
+          eventId={event.id}
+          userId={userId}
+          eventTitle={event.title}
+          onClose={() => setPassVisible(false)}
+        />
+      )}
+      <CheckinScanner
+        visible={scannerVisible}
+        eventId={event.id}
+        onClose={() => setScannerVisible(false)}
+        onScanned={onScanned}
+      />
+
       <EventFormModal
         visible={editVisible}
         mode="edit"
@@ -856,6 +930,13 @@ const styles = StyleSheet.create({
   coHostDone: { marginTop: Spacing.three },
   description: { fontSize: 14, fontWeight: '600', marginBottom: Spacing.three, lineHeight: 20 },
   hashtag: { fontWeight: '900' },
+  passBtn: { borderWidth: 2, borderRadius: 12, paddingVertical: Spacing.two, alignItems: 'center', marginTop: Spacing.two },
+  checkinHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  scanBtn: { borderWidth: 2, borderRadius: 10, paddingHorizontal: Spacing.three, paddingVertical: 6 },
+  scanBtnText: { fontSize: 12, fontWeight: '900', color: '#000' },
+  checkinRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, borderWidth: 2, borderRadius: 12, paddingHorizontal: Spacing.two, paddingVertical: Spacing.two, marginBottom: Spacing.two },
+  checkinName: { flex: 1, fontSize: 14, fontWeight: '900' },
+  checkinMark: { fontSize: 12, fontWeight: '900' },
   detailItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one, marginBottom: Spacing.one },
   detailEmoji: { fontSize: 16 },
   detailText: { fontSize: 13, fontWeight: 'bold' },

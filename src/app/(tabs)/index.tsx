@@ -140,6 +140,28 @@ function trendingScore(e: { likeCount: number; rsvpCount: number; created_at: st
   return (e.likeCount + 2 * e.rsvpCount + 1) / Math.pow(hoursSince(e.created_at), 0.6);
 }
 
+// Shift a naive "YYYY-MM-DDTHH:MM:SS" by i recurrence steps.
+function shiftIso(iso: string, rec: 'none' | 'daily' | 'weekly' | 'monthly', i: number): string {
+  if (i === 0 || rec === 'none') return iso;
+  const [datePart, timePart = '00:00:00'] = iso.split('T');
+  const [y, m, d] = datePart.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (rec === 'daily') dt.setDate(dt.getDate() + i);
+  else if (rec === 'weekly') dt.setDate(dt.getDate() + 7 * i);
+  else if (rec === 'monthly') dt.setMonth(dt.getMonth() + i);
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${dt.getFullYear()}-${mm}-${dd}T${timePart}`;
+}
+
+// A v4-ish id to tie a recurring series together (Hermes lacks crypto.randomUUID).
+function uuidish(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 const PAGE_SIZE = 20;
 
 export default function HomeScreen() {
@@ -344,11 +366,10 @@ export default function HomeScreen() {
     const { data: prof } = await supabase.from('profiles').select('university').eq('id', user.id).single();
     const school = (prof as any)?.university ?? null;
 
-    const { error } = await supabase.from('events').insert({
+    const base = {
       title: values.title,
       description: values.description || null,
       location: values.place.name,
-      event_time: values.eventTimeIso,
       created_by: user.id,
       host: values.host || null,
       latitude: values.place.lat,
@@ -358,8 +379,19 @@ export default function HomeScreen() {
       visibility: values.visibility,
       capacity: values.capacity,
       school,
-    });
+    };
 
+    // Recurring events are materialized as separate rows sharing a series_id,
+    // so they slot straight into the feed/map with no special-casing on read.
+    const occurrences = values.recurrence === 'none' ? 1 : values.recurrenceCount;
+    const seriesId = occurrences > 1 ? uuidish() : null;
+    const rows = Array.from({ length: occurrences }, (_, i) => ({
+      ...base,
+      event_time: shiftIso(values.eventTimeIso, values.recurrence, i),
+      series_id: seriesId,
+    }));
+
+    const { error } = await supabase.from('events').insert(rows);
     if (error) return { error: error.message };
   }
 
