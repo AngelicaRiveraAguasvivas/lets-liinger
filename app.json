@@ -14,7 +14,8 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "LetsLiinger uses your location to show events happening near you and to place event pins on the campus map. You can decline and still use the app.",
         "NSPhotoLibraryUsageDescription": "LetsLiinger needs access to your photos so you can set a profile picture and add a cover image to your events.",
-        "NSCameraUsageDescription": "LetsLiinger uses your camera so you can take a new profile picture or event photo."
+        "NSCameraUsageDescription": "LetsLiinger uses your camera so you can take a new profile picture or event photo.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -27,7 +28,9 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.letsliinger.LetsLiinger",
       "googleServicesFile": "./google-services.json"
@@ -65,9 +68,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "f4ab3b37-e91d-4147-92f9-ca8b892d9b0e"
+        "projectId": "e361fb36-c416-470d-9663-d9999c25b4c9"
       }
     },
-    "owner": "albertwongs-team"
+    "owner": "letsliinger"
   }
 }
