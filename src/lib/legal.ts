@@ -13,8 +13,8 @@ export const EFFECTIVE_DATE = 'August 12, 2026';
 
 // Hosted pages live in /docs (served by GitHub Pages). Enable Pages on the
 // repo (Settings → Pages → deploy from `main` /docs) to make these live.
-export const TERMS_URL = 'https://angelicariveraaguasvivas.github.io/lets-liinger/terms.html';
-export const PRIVACY_URL = 'https://angelicariveraaguasvivas.github.io/lets-liinger/privacy.html';
+export const TERMS_URL = 'https://lets-liinger.pages.dev/terms.html';
+export const PRIVACY_URL = 'https://lets-liinger.pages.dev/privacy.html';
 
 export const TERMS_TEXT = `${APP_NAME} — Terms of Service & End User License Agreement
 
