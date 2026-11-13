@@ -51,7 +51,7 @@ export default function InsightsScreen() {
   const maxRsvps = Math.max(1, ...shownEvents.map((e) => e.rsvps), 0);
 
   function audienceLine(a: CreatorInsights['audience']): string {
-    if (a.total === 0) return 'No one has engaged yet — share your events!';
+    if (a.total === 0) return 'No one has engaged yet. Share your events!';
     const parts: string[] = [];
     if (a.schools[0]) parts.push(`${a.schools[0].pct}% ${a.schools[0].name}`);
     if (a.years[0]) parts.push(`mostly Class of ${a.years[0].year}`);
@@ -62,9 +62,9 @@ export default function InsightsScreen() {
   function hookLine(d: CreatorInsights): string {
     if (d.totalEngagement === 0) return 'Share your events to start pulling a crowd.';
     if (d.topEvent && d.topEvent.rsvps > 0) {
-      return `“${d.topEvent.title}” is your biggest hit — ${d.topEvent.rsvps} going!`;
+      return `“${d.topEvent.title}” is your biggest hit with ${d.topEvent.rsvps} going!`;
     }
-    return 'Your buzz is building — keep posting!';
+    return 'Your buzz is building. Keep posting!';
   }
 
   return (
@@ -82,7 +82,7 @@ export default function InsightsScreen() {
             <View style={styles.emptyCard}>
               <ThemedText style={styles.emptyBig}>No events yet</ThemedText>
               <ThemedText style={styles.emptyText} themeColor="textSecondary">
-                Post your first event and watch the RSVPs, likes, and comments roll in — your stats show up here.
+                Post your first event and watch the RSVPs, likes, and comments roll in. Your stats show up here.
               </ThemedText>
               <ShadowSurface
                 backgroundColor={colors.accentGreen}

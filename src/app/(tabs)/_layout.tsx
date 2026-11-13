@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { Image, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useT } from '@/hooks/app-prefs-context';
 import { useNotifications } from '@/hooks/notifications-context';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -31,6 +32,7 @@ function TabIcon({ source, focused, showDot }: { source: any; focused?: boolean;
 export default function TabLayout() {
   const { hasUnreadMessages, hasNewEvents } = useNotifications();
   const insets = useSafeAreaInsets();
+  const { t } = useT();
 
   return (
     <Tabs
@@ -65,6 +67,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
+          tabBarAccessibilityLabel: t('tabHome'),
           tabBarIcon: ({ focused }) => (
             <TabIcon source={require('@/assets/images/tabIcons/home.png')} focused={focused} showDot={hasNewEvents} />
           ),
@@ -73,6 +76,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="calendar"
         options={{
+          tabBarAccessibilityLabel: t('tabCalendar'),
           tabBarIcon: ({ focused }) => (
             <TabIcon source={require('@/assets/images/tabIcons/calendar.png')} focused={focused} />
           ),
@@ -81,6 +85,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
+          tabBarAccessibilityLabel: t('tabProfile'),
           tabBarIcon: ({ focused }) => (
             <TabIcon source={require('@/assets/images/tabIcons/profile.png')} focused={focused} />
           ),
@@ -89,6 +94,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="map"
         options={{
+          tabBarAccessibilityLabel: t('tabMap'),
           tabBarIcon: ({ focused }) => (
             <TabIcon source={require('@/assets/images/tabIcons/map.png')} focused={focused} />
           ),
@@ -97,6 +103,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="messages"
         options={{
+          tabBarAccessibilityLabel: t('tabMessages'),
           tabBarIcon: ({ focused }) => (
             <TabIcon source={require('@/assets/images/tabIcons/messages.png')} focused={focused} showDot={hasUnreadMessages} />
           ),

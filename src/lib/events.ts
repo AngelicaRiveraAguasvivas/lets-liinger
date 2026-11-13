@@ -74,7 +74,7 @@ export function eventShareUrl(eventId: string): string {
 
 export async function shareEvent(eventId: string, title: string): Promise<'shared' | 'copied' | 'unsupported'> {
   const url = eventShareUrl(eventId);
-  const message = `${title} — check it out on LetsLiinger`;
+  const message = `${title}: check it out on LetsLiinger`;
 
   if (Platform.OS === 'web') {
     const nav: any = typeof navigator !== 'undefined' ? navigator : null;

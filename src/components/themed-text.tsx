@@ -1,6 +1,7 @@
-import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
+import { Platform, StyleSheet, Text, type TextProps, type TextStyle } from 'react-native';
 
 import { Fonts, ThemeColor } from '@/constants/theme';
+import { useAppPrefs } from '@/hooks/app-prefs-context';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
@@ -10,24 +11,33 @@ export type ThemedTextProps = TextProps & {
 
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
+  const { textScale } = useAppPrefs();
 
-  return (
-    <Text
-      style={[
-        { color: theme[themeColor ?? 'text'] },
-        type === 'default' && styles.default,
-        type === 'title' && styles.title,
-        type === 'small' && styles.small,
-        type === 'smallBold' && styles.smallBold,
-        type === 'subtitle' && styles.subtitle,
-        type === 'link' && styles.link,
-        type === 'linkPrimary' && styles.linkPrimary,
-        type === 'code' && styles.code,
-        style,
-      ]}
-      {...rest}
-    />
-  );
+  const flat: TextStyle = StyleSheet.flatten([
+    { color: theme[themeColor ?? 'text'] },
+    type === 'default' && styles.default,
+    type === 'title' && styles.title,
+    type === 'small' && styles.small,
+    type === 'smallBold' && styles.smallBold,
+    type === 'subtitle' && styles.subtitle,
+    type === 'link' && styles.link,
+    type === 'linkPrimary' && styles.linkPrimary,
+    type === 'code' && styles.code,
+    style,
+  ]) ?? {};
+
+  // "Text size" setting from Settings → Accessibility. Scale font size and
+  // line height together so the bigger text doesn't get clipped.
+  const scaled: TextStyle =
+    textScale === 1
+      ? flat
+      : {
+          ...flat,
+          fontSize: (flat.fontSize ?? 16) * textScale,
+          lineHeight: flat.lineHeight != null ? flat.lineHeight * textScale : undefined,
+        };
+
+  return <Text style={scaled} maxFontSizeMultiplier={2} {...rest} />;
 }
 
 const styles = StyleSheet.create({

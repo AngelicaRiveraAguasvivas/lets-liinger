@@ -56,7 +56,7 @@ export async function enablePush(userId: string): Promise<{ error?: string }> {
 
   const projectId = getProjectId();
   if (!projectId) {
-    return { error: 'Push isn’t set up yet — run `eas init` to link a project, then rebuild.' };
+    return { error: 'Push isn’t set up yet. Run `eas init` to link a project, then rebuild.' };
   }
 
   let token: string;

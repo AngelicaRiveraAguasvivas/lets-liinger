@@ -2,6 +2,7 @@ import { StyleProp, StyleSheet, TextInput, TextInputProps, View, ViewStyle } fro
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { useAppPrefs } from '@/hooks/app-prefs-context';
 import { useTheme } from '@/hooks/use-theme';
 
 interface TextFieldProps extends TextInputProps {
@@ -13,6 +14,7 @@ interface TextFieldProps extends TextInputProps {
 // repeated on every form screen (auth, onboarding, create/edit event, profile).
 export function TextField({ label, style, containerStyle, ...rest }: TextFieldProps) {
   const theme = useTheme();
+  const { textScale } = useAppPrefs();
   return (
     <View style={containerStyle}>
       {label ? <ThemedText style={styles.label} themeColor="accentCyan">{label}</ThemedText> : null}
@@ -20,9 +22,11 @@ export function TextField({ label, style, containerStyle, ...rest }: TextFieldPr
         style={[
           styles.input,
           { backgroundColor: theme.backgroundElement, color: theme.text, borderColor: theme.border },
+          { fontSize: 15 * textScale },
           style,
         ]}
         placeholderTextColor={theme.textSecondary}
+        accessibilityLabel={rest.accessibilityLabel ?? label ?? rest.placeholder}
         {...rest}
       />
     </View>

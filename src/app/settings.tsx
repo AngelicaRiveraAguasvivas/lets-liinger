@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -14,11 +15,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Ionicons } from '@expo/vector-icons';
 
+import { useLeaveGuest } from '@/components/guest';
+import { HueSlider } from '@/components/hue-slider';
 import { ThemedText } from '@/components/themed-text';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { TextField } from '@/components/ui/text-field';
 import { Spacing } from '@/constants/theme';
+import { TextScale, useAppPrefs, useT } from '@/hooks/app-prefs-context';
 import { useTheme } from '@/hooks/use-theme';
+import { PRESET_HUES, hslToHex } from '@/lib/accent';
+import { LANGUAGES, type TKey } from '@/lib/i18n';
+import { REMINDER_PRESETS } from '@/lib/reminders';
 import { deleteAccount } from '../lib/account';
 import { isModerator } from '../lib/moderation';
 import { disablePush, enablePush, getPushEnabled } from '../lib/push';
@@ -28,6 +35,10 @@ import { supabase } from '../supabaseClient';
 export default function SettingsScreen() {
   const colors = useTheme();
   const router = useRouter();
+  const { t } = useT();
+  const prefs = useAppPrefs();
+  const { isGuest } = prefs;
+  const leaveGuest = useLeaveGuest();
 
   const [selfId, setSelfId] = useState<string | null>(null);
   const [moderator, setModerator] = useState(false);
@@ -57,6 +68,7 @@ export default function SettingsScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (isGuest) return;
       const { data: { user } } = await supabase.auth.getUser();
       if (user && !cancelled) {
         setSelfId(user.id);
@@ -73,7 +85,7 @@ export default function SettingsScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [isGuest]);
 
   async function handleChangeEmail() {
     setEmailNote('');
@@ -89,7 +101,7 @@ export default function SettingsScreen() {
       setEmailNote(error.message);
       return;
     }
-    setEmailNote('Confirmation links sent — check both your old and new email to finish.');
+    setEmailNote('Confirmation links sent. Check both your old and new email to finish.');
   }
 
   async function handleTogglePrivacy(next: boolean) {
@@ -126,6 +138,8 @@ export default function SettingsScreen() {
   }
 
   async function handleLogOut() {
+    // Don't leave this account's saved feed on a shared device.
+    await AsyncStorage.removeItem('letsliinger:feed-cache:v1').catch(() => {});
     await supabase.auth.signOut();
     // Root layout listens for the auth-state change and redirects to /auth.
   }
@@ -140,6 +154,7 @@ export default function SettingsScreen() {
       return;
     }
     setConfirmVisible(false);
+    await AsyncStorage.removeItem('letsliinger:feed-cache:v1').catch(() => {});
     // Account + session are gone; root layout redirects to /auth.
   }
 
@@ -161,30 +176,192 @@ export default function SettingsScreen() {
     <SafeAreaView style={dynamicStyles.safeArea} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/profile'))}>
-          <ThemedText style={dynamicStyles.headerText}>‹ settings</ThemedText>
+          <ThemedText style={dynamicStyles.headerText} accessibilityRole="header">‹ {t('settings')}</ThemedText>
         </TouchableOpacity>
 
+        {/* Appearance: accent tone */}
+        <ThemedText style={styles.sectionTitle} accessibilityRole="header">{t('appearance')}</ThemedText>
+        <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.padCard}>
+          <View style={styles.toneHeader}>
+            <ThemedText style={styles.rowLabel}>{t('accentTone')}</ThemedText>
+            <View style={styles.swatchRow} importantForAccessibility="no-hide-descendants">
+              {[colors.accentPink, colors.accentCyan, colors.accentYellow, colors.accentGreen].map((c, i) => (
+                <View key={i} style={[styles.swatch, { backgroundColor: c, borderColor: colors.border }]} />
+              ))}
+            </View>
+          </View>
+          <ThemedText style={styles.rowSub} themeColor="textSecondary">{t('accentHint')}</ThemedText>
+          <HueSlider
+            value={prefs.accentHue}
+            onChange={(hue) => prefs.update({ accentHue: hue })}
+            accessibilityLabel={t('accentTone')}
+          />
+          <View style={styles.presetRow}>
+            {PRESET_HUES.map((p) => {
+              const on = prefs.accentHue === p.hue;
+              return (
+                <TouchableOpacity
+                  key={p.hue}
+                  onPress={() => prefs.update({ accentHue: p.hue })}
+                  accessibilityRole="radio"
+                  accessibilityLabel={p.name}
+                  accessibilityState={{ checked: on }}
+                  style={[styles.presetDot, { backgroundColor: hslToHex(p.hue, 100, 60), borderColor: colors.border }, on && styles.presetOn]}
+                />
+              );
+            })}
+          </View>
+          <TouchableOpacity
+            onPress={() => prefs.update({ accentHue: null })}
+            style={[styles.pill, { borderColor: colors.border, backgroundColor: prefs.accentHue == null ? colors.accentPink : 'transparent' }]}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: prefs.accentHue == null }}
+          >
+            <ThemedText style={[styles.pillText, prefs.accentHue == null && { color: '#000' }]}>{t('useDefault')}</ThemedText>
+          </TouchableOpacity>
+        </ShadowSurface>
+
+        {/* Language */}
+        <ThemedText style={styles.sectionTitle} accessibilityRole="header">{t('language')}</ThemedText>
+        <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
+          {LANGUAGES.map((l, i) => {
+            const on = prefs.language === l.key;
+            return (
+              <TouchableOpacity
+                key={l.key}
+                style={[dynamicStyles.row, i === LANGUAGES.length - 1 && styles.lastRow]}
+                onPress={() => prefs.update({ language: l.key })}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: on }}
+              >
+                <ThemedText style={styles.rowLabel}>{l.label}</ThemedText>
+                {on ? <Ionicons name="checkmark-circle" size={22} color={colors.accentGreen} /> : null}
+              </TouchableOpacity>
+            );
+          })}
+        </ShadowSurface>
+        <ThemedText style={styles.hint} themeColor="textSecondary">{t('languageHint')}</ThemedText>
+
+        {/* Accessibility */}
+        <ThemedText style={styles.sectionTitle} accessibilityRole="header">{t('accessibility')}</ThemedText>
+        <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
+          <View style={[dynamicStyles.row, styles.columnRow]}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="text-outline" size={20} color={colors.text} />
+              <ThemedText style={styles.rowLabel}>{t('textSize')}</ThemedText>
+            </View>
+            <View style={styles.segmentRow} accessibilityRole="radiogroup">
+              {([1, 1.15, 1.3] as TextScale[]).map((scale) => {
+                const on = prefs.textScale === scale;
+                const label = scale === 1 ? t('ts_default') : scale === 1.15 ? t('ts_large') : t('ts_xl');
+                return (
+                  <TouchableOpacity
+                    key={scale}
+                    onPress={() => prefs.update({ textScale: scale })}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: on }}
+                    style={[styles.segmentBtn, { borderColor: colors.border, backgroundColor: on ? colors.accentCyan : 'transparent' }]}
+                  >
+                    <ThemedText style={[styles.segmentText, { fontSize: 12 * scale }, on && { color: '#000' }]}>{label}</ThemedText>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+          <View style={dynamicStyles.row}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="contrast-outline" size={20} color={colors.text} />
+              <View style={styles.rowTextWrap}>
+                <ThemedText style={styles.rowLabel}>{t('highContrast')}</ThemedText>
+                <ThemedText style={styles.rowSub} themeColor="textSecondary">{t('highContrastSub')}</ThemedText>
+              </View>
+            </View>
+            <Switch
+              value={prefs.highContrast}
+              onValueChange={(v) => prefs.update({ highContrast: v })}
+              trackColor={{ true: colors.accentGreen, false: colors.border }}
+              thumbColor="#fff"
+              accessibilityLabel={t('highContrast')}
+            />
+          </View>
+          <View style={[dynamicStyles.row, styles.lastRow]}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="pause-circle-outline" size={20} color={colors.text} />
+              <View style={styles.rowTextWrap}>
+                <ThemedText style={styles.rowLabel}>{t('reduceMotion')}</ThemedText>
+                <ThemedText style={styles.rowSub} themeColor="textSecondary">{t('reduceMotionSub')}</ThemedText>
+              </View>
+            </View>
+            <Switch
+              value={prefs.reduceMotion}
+              onValueChange={(v) => prefs.update({ reduceMotion: v })}
+              trackColor={{ true: colors.accentGreen, false: colors.border }}
+              thumbColor="#fff"
+              accessibilityLabel={t('reduceMotion')}
+            />
+          </View>
+        </ShadowSurface>
+
+        {/* Reminders */}
+        <ThemedText style={styles.sectionTitle} accessibilityRole="header">{t('reminders')}</ThemedText>
+        <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.padCard}>
+          <ThemedText style={styles.rowLabel}>{t('defaultReminder')}</ThemedText>
+          <ThemedText style={styles.rowSub} themeColor="textSecondary">{t('defaultReminderSub')}</ThemedText>
+          <View style={styles.presetWrap} accessibilityRole="radiogroup">
+            {[null, ...REMINDER_PRESETS].map((min) => {
+              const on = prefs.defaultReminder === min;
+              const label = min == null ? t('none') : t(`remind_${min}` as TKey);
+              return (
+                <TouchableOpacity
+                  key={String(min)}
+                  onPress={() => prefs.update({ defaultReminder: min })}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: on }}
+                  style={[styles.pill, { borderColor: colors.border, backgroundColor: on ? colors.accentYellow : 'transparent' }]}
+                >
+                  <ThemedText style={[styles.pillText, on && { color: '#000' }]}>{label}</ThemedText>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ShadowSurface>
+
+        {isGuest ? (
+          <>
+            <ThemedText style={styles.sectionTitle} accessibilityRole="header">{t('account')}</ThemedText>
+            <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
+              <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={leaveGuest} accessibilityRole="button">
+                <View style={styles.rowLeft}>
+                  <Ionicons name="person-add-outline" size={20} color={colors.text} />
+                  <ThemedText style={styles.rowLabel}>{t('guestCta')}</ThemedText>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </ShadowSurface>
+          </>
+        ) : (
+        <>
         {/* Account */}
-        <ThemedText style={styles.sectionTitle}>ACCOUNT</ThemedText>
+        <ThemedText style={styles.sectionTitle} accessibilityRole="header">{t('account')}</ThemedText>
         <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/edit-profile')}>
             <View style={styles.rowLeft}>
               <Ionicons name="person-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Edit profile</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('editProfile')}</ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => { setPwNote(''); setNewPw(''); setConfirmPw(''); setPwModalVisible(true); }}>
             <View style={styles.rowLeft}>
               <Ionicons name="key-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Change password</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('changePassword')}</ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => { setEmailNote(''); setNewEmail(''); setEmailModalVisible(true); }}>
             <View style={styles.rowLeft}>
               <Ionicons name="mail-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Change email</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('changeEmail')}</ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
@@ -192,8 +369,8 @@ export default function SettingsScreen() {
             <View style={styles.rowLeft}>
               <Ionicons name="lock-closed-outline" size={20} color={colors.text} />
               <View style={styles.rowTextWrap}>
-                <ThemedText style={styles.rowLabel}>Private account</ThemedText>
-                <ThemedText style={styles.rowSub} themeColor="textSecondary">Only followers see your events &amp; activity</ThemedText>
+                <ThemedText style={styles.rowLabel}>{t('privateAccount')}</ThemedText>
+                <ThemedText style={styles.rowSub} themeColor="textSecondary">{t('privateSub')}</ThemedText>
               </View>
             </View>
             <Switch
@@ -206,7 +383,7 @@ export default function SettingsScreen() {
           <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/blocked')}>
             <View style={styles.rowLeft}>
               <Ionicons name="ban-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Blocked accounts</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('blocked')}</ThemedText>
             </View>
             <View style={styles.rowRight}>
               {blockedCount > 0 ? <ThemedText style={styles.rowValue} themeColor="textSecondary">{blockedCount}</ThemedText> : null}
@@ -216,26 +393,26 @@ export default function SettingsScreen() {
           <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={handleLogOut}>
             <View style={styles.rowLeft}>
               <Ionicons name="log-out-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Log out</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('logOut')}</ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         </ShadowSurface>
 
         {/* Notifications */}
-        <ThemedText style={styles.sectionTitle}>NOTIFICATIONS</ThemedText>
+        <ThemedText style={styles.sectionTitle}>{t('notifications')}</ThemedText>
         <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/notification-settings')}>
             <View style={styles.rowLeft}>
               <Ionicons name="options-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Notification settings</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('notifSettings')}</ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
           <View style={[dynamicStyles.row, styles.lastRow]}>
             <View style={styles.rowLeft}>
               <Ionicons name="notifications-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Push to my phone</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('pushPhone')}</ThemedText>
             </View>
             {pushBusy ? (
               <ActivityIndicator color={colors.text} />
@@ -252,37 +429,40 @@ export default function SettingsScreen() {
         <ThemedText style={styles.hint} themeColor="textSecondary">
           {pushNote
             ? pushNote
-            : 'Get a notification when someone messages you or a new event is posted. Works in the installed iOS/Android app.'}
+            : t('pushHint')}
         </ThemedText>
 
+        </>
+        )}
+
         {/* Legal */}
-        <ThemedText style={styles.sectionTitle}>LEGAL</ThemedText>
+        <ThemedText style={styles.sectionTitle}>{t('legal')}</ThemedText>
         <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
           <TouchableOpacity style={dynamicStyles.row} onPress={() => router.push('/legal?doc=terms')}>
             <View style={styles.rowLeft}>
               <Ionicons name="document-text-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Terms of Service</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('termsOfService')}</ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={() => router.push('/legal?doc=privacy')}>
             <View style={styles.rowLeft}>
               <Ionicons name="lock-closed-outline" size={20} color={colors.text} />
-              <ThemedText style={styles.rowLabel}>Privacy Policy</ThemedText>
+              <ThemedText style={styles.rowLabel}>{t('privacyPolicyRow')}</ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
         </ShadowSurface>
 
         {/* Moderation (moderators only) */}
-        {moderator && (
+        {moderator && !isGuest && (
           <>
-            <ThemedText style={styles.sectionTitle}>MODERATION</ThemedText>
+            <ThemedText style={styles.sectionTitle}>{t('moderation')}</ThemedText>
             <ShadowSurface backgroundColor={colors.backgroundElement} radius={16} offset={4} borderWidth={2} wrapperStyle={styles.cardShadow} style={styles.card}>
               <TouchableOpacity style={[dynamicStyles.row, styles.lastRow]} onPress={() => router.push('/moderation')}>
                 <View style={styles.rowLeft}>
                   <Ionicons name="shield-checkmark-outline" size={20} color={colors.text} />
-                  <ThemedText style={styles.rowLabel}>Review reports</ThemedText>
+                  <ThemedText style={styles.rowLabel}>{t('reviewReports')}</ThemedText>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -291,7 +471,9 @@ export default function SettingsScreen() {
         )}
 
         {/* Danger zone */}
-        <ThemedText style={styles.sectionTitle}>DANGER ZONE</ThemedText>
+        {!isGuest && (
+        <>
+        <ThemedText style={styles.sectionTitle}>{t('dangerZone')}</ThemedText>
         <ShadowSurface
           backgroundColor={colors.accentPink}
           radius={14}
@@ -300,11 +482,13 @@ export default function SettingsScreen() {
           style={styles.deleteBtn}
           onPress={() => setConfirmVisible(true)}
         >
-          <ThemedText style={styles.deleteBtnText}>DELETE MY ACCOUNT</ThemedText>
+          <ThemedText style={styles.deleteBtnText}>{t('deleteAccount')}</ThemedText>
         </ShadowSurface>
         <ThemedText style={styles.dangerHint} themeColor="textSecondary">
-          Permanently deletes your profile, events, messages, and activity. This can&apos;t be undone.
+          {t('deleteHint')}
         </ThemedText>
+        </>
+        )}
       </ScrollView>
 
       {/* Delete confirmation */}
@@ -350,11 +534,10 @@ export default function SettingsScreen() {
             <ShadowSurface backgroundColor={colors.backgroundElement} radius={20} offset={5} wrapperStyle={styles.confirmShadow} style={styles.confirmCard}>
               <ThemedText style={styles.confirmTitle}>Change email</ThemedText>
               <ThemedText style={styles.confirmBody} themeColor="textSecondary">
-                Current: {currentEmail || '—'}
+                Current: {currentEmail || 'none'}
               </ThemedText>
               <TextField
                 label="New email"
-                placeholder="you@newemail.com"
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={newEmail}
@@ -408,7 +591,21 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { padding: Spacing.four, paddingBottom: 130 },
+  scrollContent: { padding: Spacing.four, paddingBottom: 130, width: '100%', maxWidth: 720, alignSelf: 'center' },
+  padCard: { padding: Spacing.three },
+  toneHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.one },
+  swatchRow: { flexDirection: 'row', gap: 4 },
+  swatch: { width: 18, height: 18, borderRadius: 9, borderWidth: 2 },
+  presetRow: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one, marginBottom: Spacing.three, flexWrap: 'wrap' },
+  presetDot: { width: 34, height: 34, borderRadius: 17, borderWidth: 2 },
+  presetOn: { borderWidth: 4 },
+  presetWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.three },
+  pill: { alignSelf: 'flex-start', borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.three, paddingVertical: 7 },
+  pillText: { fontSize: 12, fontWeight: '800' },
+  columnRow: { flexDirection: 'column', alignItems: 'flex-start', gap: Spacing.two },
+  segmentRow: { flexDirection: 'row', gap: Spacing.two, flexWrap: 'wrap' },
+  segmentBtn: { borderWidth: 2, borderRadius: 10, paddingHorizontal: Spacing.three, paddingVertical: 7 },
+  segmentText: { fontWeight: '800' },
   sectionTitle: { fontSize: 12, fontWeight: '900', letterSpacing: 1, opacity: 0.6, marginTop: Spacing.four, marginBottom: Spacing.two },
   cardShadow: { marginBottom: Spacing.one },
   card: { overflow: 'hidden' },

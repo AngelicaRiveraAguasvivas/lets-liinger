@@ -22,7 +22,7 @@ import { supabase } from '../supabaseClient';
 
 const INTEREST_OPTIONS = [
   'Music', 'Greek Life', 'Sports', 'Gaming / Esports', 'Art & Design',
-  'Academic', 'Cultural', 'Volunteering', 'Business', 'Tech / Engineering',
+  'Academic', 'Career', 'Cultural', 'Volunteering', 'Business', 'Tech / Engineering',
   'Film & Media', 'Dance', 'Outdoors', 'Health & Wellness', 'Food',
 ];
 
@@ -161,7 +161,7 @@ export default function EditProfileScreen() {
       .eq('id', user.id);
 
     if (error) {
-      setErrorMsg(error.code === '23505' ? 'That username is already taken — try another.' : error.message);
+      setErrorMsg(error.code === '23505' ? 'That username is already taken. Try another.' : error.message);
       setSaving(false);
       return;
     }
@@ -261,7 +261,7 @@ export default function EditProfileScreen() {
         ) : (
           <SchoolPicker value={university} onChange={setUniversity} />
         )}
-        <TextField label="Grad year" placeholder="2028" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
+        <TextField label="Grad year" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
         <View style={styles.row2}>
           <TextField containerStyle={styles.flex1} label="Major" value={major} onChangeText={setMajor} />
           <TextField containerStyle={styles.flex1} label="Minor (optional)" value={minor} onChangeText={setMinor} />
@@ -269,13 +269,12 @@ export default function EditProfileScreen() {
 
         <TextField
           label="Phone (optional)"
-          placeholder="(555) 123-4567"
           keyboardType="phone-pad"
           value={phone}
           onChangeText={setPhone}
         />
         <ThemedText style={styles.hint} themeColor="textSecondary">
-          Private — never shown on your profile. Only used so friends who have your number can find you. Leave blank to skip.
+          Private and never shown on your profile. Only used so friends who have your number can find you. Leave blank to skip.
         </ThemedText>
 
         <ThemedText style={styles.label} themeColor="accentCyan">What are you into?</ThemedText>
@@ -289,7 +288,7 @@ export default function EditProfileScreen() {
         {extracurriculars.map((item, index) => (
           <View key={`${item.name}-${index}`} style={[styles.clubRow, { backgroundColor: colors.backgroundElement, borderColor: colors.border }]}>
             <ThemedText style={styles.clubRowText}>
-              {item.name} <ThemedText style={styles.clubRowRole} themeColor="textSecondary">— {item.role}</ThemedText>
+              {item.name} <ThemedText style={styles.clubRowRole} themeColor="textSecondary">· {item.role}</ThemedText>
             </ThemedText>
             <TouchableOpacity onPress={() => removeExtracurricular(index)}>
               <ThemedText style={[styles.removeText, { color: colors.accentPink }]}>✕</ThemedText>
@@ -306,7 +305,7 @@ export default function EditProfileScreen() {
           createClub={createClub}
         />
 
-        <TextField placeholder="Your role (e.g. Member)" containerStyle={styles.roleField} value={newRole} onChangeText={setNewRole} />
+        <TextField placeholder="Your role" containerStyle={styles.roleField} value={newRole} onChangeText={setNewRole} />
 
         <ShadowSurface
           backgroundColor={colors.accentGreen}

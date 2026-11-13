@@ -8,6 +8,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AvatarBubble } from '@/components/avatar-bubble';
 import { CheckinPass } from '@/components/checkin-pass';
 import { CheckinScanner } from '@/components/checkin-scanner';
+import { DemoEventDetail } from '@/components/demo-event-detail';
+import { ReminderButton } from '@/components/reminder-sheet';
+import { isDemoId } from '@/lib/demo';
 import { EventFormInitialValues, EventFormModal, EventFormSubmitValues } from '@/components/event-form-modal';
 import { ThemedText } from '@/components/themed-text';
 import { IconButton } from '@/components/ui/icon-button';
@@ -60,7 +63,13 @@ interface EventDetail {
   capacity: number | null;
 }
 
+// Guest-mode sample events (ids starting with "demo-") get a local-only page.
 export default function EventDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return isDemoId(id) ? <DemoEventDetail id={id} /> : <RealEventDetail />;
+}
+
+function RealEventDetail() {
   const colors = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -483,8 +492,8 @@ export default function EventDetailScreen() {
 
           {canEdit && (
             <View style={styles.ownerActions}>
-              <IconButton emoji="✏️" onPress={() => setEditVisible(true)} />
-              {isOwner && <IconButton emoji="🗑️" onPress={() => { setDeleteError(''); setDeleteVisible(true); }} />}
+              <IconButton emoji="✏️" accessibilityLabel="Edit event" onPress={() => setEditVisible(true)} />
+              {isOwner && <IconButton emoji="🗑️" accessibilityLabel="Delete event" onPress={() => { setDeleteError(''); setDeleteVisible(true); }} />}
             </View>
           )}
         </View>
@@ -663,6 +672,7 @@ export default function EventDetailScreen() {
               <ThemedText style={styles.secondaryText}>Share</ThemedText>
             </TouchableOpacity>
           </View>
+          <ReminderButton event={{ id: event.id, title: event.title, event_time: event.event_time }} />
           {shareMsg ? (
             <ThemedText style={styles.shareMsg} themeColor="accentCyan">{shareMsg}</ThemedText>
           ) : null}
@@ -679,7 +689,7 @@ export default function EventDetailScreen() {
 
         <ThemedText style={styles.sectionTitle}>WHO&apos;S GOING ({attendance.headcount})</ThemedText>
         {rsvpers.length === 0 ? (
-          <ThemedText style={styles.noteText} themeColor="textSecondary">No RSVPs yet — be the first!</ThemedText>
+          <ThemedText style={styles.noteText} themeColor="textSecondary">No RSVPs yet. Be the first!</ThemedText>
         ) : (
           <View style={styles.rsvpWrap}>
             {rsvpers.map((r) => (

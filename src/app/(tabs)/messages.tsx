@@ -3,6 +3,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { GuestMessages } from '@/components/guest';
+import { useIsGuest } from '@/hooks/app-prefs-context';
+
 import { AvatarBubble } from '@/components/avatar-bubble';
 import { ThemedText } from '@/components/themed-text';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
@@ -32,7 +35,13 @@ function formatRelative(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+// Guests see a sample version of this tab instead of real account data.
 export default function MessagesScreen() {
+  const isGuest = useIsGuest();
+  return isGuest ? <GuestMessages /> : <MessagesScreenSigned />;
+}
+
+function MessagesScreenSigned() {
   const colors = useTheme();
   const router = useRouter();
   const { markMessagesSeen } = useNotifications();

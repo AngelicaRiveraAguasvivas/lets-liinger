@@ -17,6 +17,8 @@ import {
   OSM_ATTRIBUTION, OSM_MAX_ZOOM, OSM_TILE_URL, SINGLE_POINT_ZOOM,
 } from '@/lib/map-config';
 import { EVENT_CATEGORIES } from '@/lib/categories';
+import { useIsGuest } from '@/hooks/app-prefs-context';
+import { getDemoEvents } from '@/lib/demo';
 import { buildMarkerPayload, MapMarker, PinEvent } from '@/lib/map-markers';
 import { supabase } from '../../supabaseClient';
 
@@ -71,6 +73,8 @@ export default function MapScreen() {
   const colors = useTheme();
   const router = useRouter();
   const { coords: userCoords } = useUserCoords(true);
+  const isGuest = useIsGuest();
+  const [guestRsvps, setGuestRsvps] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
@@ -87,10 +91,21 @@ export default function MapScreen() {
   const fitKeyRef = useRef<string>('');
 
   const fetchAll = useCallback(async (filter: DateFilter) => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = isGuest ? { data: { user: null } } : await supabase.auth.getUser();
     setUserId(user?.id ?? null);
 
-    const [eventsRes, rsvpsRes, profRes] = await Promise.all([
+    // Guest mode: sample events shaped like the real query result.
+    const guestRows = isGuest
+      ? getDemoEvents().map((e) => ({
+          id: e.id, title: e.title, location: e.location, event_time: e.event_time,
+          latitude: e.latitude, longitude: e.longitude, host: e.host, category: e.category,
+          school: null, visibility: 'public', created_by: null, creator: null,
+        }))
+      : null;
+
+    const [eventsRes, rsvpsRes, profRes] = guestRows
+      ? [{ data: guestRows }, { data: [] as { event_id: string; user_id: string }[] }, { data: null }]
+      : await Promise.all([
       supabase
         .from('events')
         .select('id, title, location, event_time, latitude, longitude, host, category, school, visibility, created_by, creator:profiles!events_created_by_fkey(username, display_name)'),
@@ -134,12 +149,14 @@ export default function MapScreen() {
         hostName: e.host?.trim()
           ? e.host
           : e.creator?.username ? `@${e.creator.username}` : e.creator?.display_name ?? 'Someone',
-        rsvpedByMe: !!user && rsvps.some((r) => r.event_id === e.id && r.user_id === user.id),
+        rsvpedByMe: isGuest
+          ? guestRsvps.has(e.id)
+          : !!user && rsvps.some((r) => r.event_id === e.id && r.user_id === user.id),
         category: e.category ?? null,
       }))
     );
     setLoading(false);
-  }, []);
+  }, [isGuest, guestRsvps]);
 
   useFocusEffect(
     useCallback(() => {
@@ -202,6 +219,15 @@ export default function MapScreen() {
   }, [pins, userCoords, mapReady, colors]);
 
   async function toggleRsvp(pin: PinEvent) {
+    if (isGuest) {
+      setGuestRsvps((prev) => {
+        const next = new Set(prev);
+        if (next.has(pin.id)) next.delete(pin.id);
+        else next.add(pin.id);
+        return next;
+      });
+      return;
+    }
     if (!userId) return;
     if (pin.rsvpedByMe) {
       await supabase.from('rsvps').delete().eq('event_id', pin.id).eq('user_id', userId);

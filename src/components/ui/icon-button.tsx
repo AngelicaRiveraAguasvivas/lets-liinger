@@ -10,16 +10,24 @@ interface IconButtonProps {
   onPress?: () => void;
   size?: number;
   style?: StyleProp<ViewStyle>;
+  /** What the button does, read out by screen readers (e.g. "Search"). */
+  accessibilityLabel?: string;
 }
 
 // The small circular button used in every screen header — either an emoji
 // glyph or a custom image icon (pass exactly one of `emoji` / `icon`).
-export function IconButton({ emoji, icon, onPress, size = 18, style }: IconButtonProps) {
+export function IconButton({ emoji, icon, onPress, size = 18, style, accessibilityLabel }: IconButtonProps) {
   const theme = useTheme();
   return (
-    <TouchableOpacity style={[styles.btn, { borderColor: theme.border }, style]} onPress={onPress}>
+    <TouchableOpacity
+      style={[styles.btn, { borderColor: theme.border }, style]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      hitSlop={6}
+    >
       {icon ? (
-        <Image source={icon} style={{ width: size, height: size }} resizeMode="contain" />
+        <Image source={icon} style={{ width: size, height: size }} resizeMode="contain" accessibilityIgnoresInvertColors />
       ) : (
         <ThemedText style={{ fontSize: size }}>{emoji}</ThemedText>
       )}

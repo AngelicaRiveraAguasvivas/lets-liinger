@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,14 +10,17 @@ import { Chip } from '@/components/ui/chip';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { TextField } from '@/components/ui/text-field';
 import { Spacing } from '@/constants/theme';
+import { useAppPrefs, useT } from '@/hooks/app-prefs-context';
 import { useClubs } from '@/hooks/use-clubs';
 import { usePlaceSearch } from '@/hooks/use-place-search';
 import { useUserCoords } from '@/hooks/use-user-coords';
 import { useTheme } from '@/hooks/use-theme';
 import { AvatarSource, pickAndCropImage, uploadEventCover } from '@/lib/avatar';
-import { EVENT_CATEGORIES } from '@/lib/categories';
+import { EVENT_CATEGORIES, categoryTKey } from '@/lib/categories';
+import type { TKey } from '@/lib/i18n';
 import { clubLabel } from '@/lib/clubs';
 import { PlaceResult } from '@/lib/places';
+import { buildOccurrences, EndMode, Recurrence } from '@/lib/recurrence';
 import { checkClean } from '@/lib/profanity';
 import { supabase } from '../supabaseClient';
 
@@ -47,17 +50,14 @@ export interface EventFormSubmitValues {
   category: string | null;
   visibility: string;
   capacity: number | null;
-  recurrence: 'none' | 'daily' | 'weekly' | 'monthly';
-  recurrenceCount: number;
+  /**
+   * Every start time to post, in order. Length 1 for a one-off event; for a
+   * repeating event the caller inserts one row per entry (sharing a series_id).
+   */
+  occurrences: string[];
 }
 
-type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly';
-const RECURRENCE_OPTIONS: { key: Recurrence; label: string }[] = [
-  { key: 'none', label: 'Does not repeat' },
-  { key: 'daily', label: 'Daily' },
-  { key: 'weekly', label: 'Weekly' },
-  { key: 'monthly', label: 'Monthly' },
-];
+const RECURRENCE_OPTIONS: Recurrence[] = ['none', 'daily', 'weekdays', 'weekly', 'biweekly', 'monthly'];
 
 interface EventFormModalProps {
   visible: boolean;
@@ -100,6 +100,8 @@ function toEventTimeIso(date: Date, time: Date | null): string {
 // submit (insert vs. update), which the caller supplies via onSubmit.
 export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit, onSuccess }: EventFormModalProps) {
   const theme = useTheme();
+  const { t } = useT();
+  const { isGuest, reduceMotion } = useAppPrefs();
   const { clubs, create: createClub } = useClubs();
   const { coords: userCoords } = useUserCoords();
   const place = usePlaceSearch(null, userCoords);
@@ -116,6 +118,8 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
   const [capacity, setCapacity] = useState('');
   const [recurrence, setRecurrence] = useState<Recurrence>('none');
   const [recurrenceCount, setRecurrenceCount] = useState('4');
+  const [endMode, setEndMode] = useState<EndMode>('count');
+  const [untilDate, setUntilDate] = useState<Date | null>(null);
   const [coverMenuVisible, setCoverMenuVisible] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -123,10 +127,15 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
 
   async function handlePickCover(source: AvatarSource) {
     setCoverMenuVisible(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
     const file = await pickAndCropImage(source, COVER_ASPECT);
     if (!file) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      // Guest mode: preview the photo locally, nothing gets uploaded.
+      const local = (file as any).uri ?? (typeof URL !== 'undefined' && file instanceof Blob ? URL.createObjectURL(file) : null);
+      if (local) setCoverUrl(local);
+      return;
+    }
     setUploadingCover(true);
     const url = await uploadEventCover(user.id, file);
     setUploadingCover(false);
@@ -148,11 +157,14 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
     setCapacity(initialValues?.capacity != null ? String(initialValues.capacity) : '');
     setRecurrence('none');
     setRecurrenceCount('4');
+    setEndMode('count');
+    setUntilDate(null);
     setFormError('');
     place.reset(parseInitialPlace(initialValues));
     // Pull the clubs the user belongs to (from their profile) so they show up
     // as one-tap host suggestions.
     (async () => {
+      if (isGuest) return;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data } = await supabase.from('profiles').select('extracurriculars').eq('id', user.id).single();
@@ -166,15 +178,15 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
   async function handleSubmit() {
     setFormError('');
     if (!title.trim()) {
-      setFormError('Give your event a title.');
+      setFormError(t('errTitle'));
       return;
     }
     if (!date) {
-      setFormError('Pick a date.');
+      setFormError(t('errDate'));
       return;
     }
     if (!place.selected) {
-      setFormError('Pick a location from the search results.');
+      setFormError(t('errPlace'));
       return;
     }
     const badWord = checkClean(`${title} ${description} ${host}`);
@@ -183,7 +195,13 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
       return;
     }
 
+    if (mode === 'create' && recurrence !== 'none' && endMode === 'until' && (!untilDate || untilDate < date)) {
+      setFormError(t('errEndDate'));
+      return;
+    }
+
     const capNum = capacity.trim() ? parseInt(capacity, 10) : NaN;
+    const firstIso = toEventTimeIso(date, time);
 
     setSaving(true);
     const result = await onSubmit({
@@ -191,13 +209,18 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
       description: description.trim(),
       host: host.trim(),
       place: place.selected,
-      eventTimeIso: toEventTimeIso(date, time),
+      eventTimeIso: firstIso,
       coverUrl,
       category,
       visibility,
       capacity: Number.isFinite(capNum) && capNum > 0 ? capNum : null,
-      recurrence,
-      recurrenceCount: Math.min(52, Math.max(1, parseInt(recurrenceCount, 10) || 1)),
+      occurrences: mode === 'create'
+        ? buildOccurrences(firstIso, recurrence, {
+            mode: endMode,
+            count: parseInt(recurrenceCount, 10) || 1,
+            until: untilDate,
+          })
+        : [firstIso],
     });
     setSaving(false);
 
@@ -206,7 +229,7 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
       return;
     }
     // Remember a freshly-typed club so it's suggested next time (for everyone).
-    if (host.trim()) createClub(host.trim(), '');
+    if (host.trim() && !isGuest) createClub(host.trim(), '');
     onSuccess();
     onClose();
   }
@@ -214,57 +237,89 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
   // Your own clubs first, then any other clubs people have used before.
   const hostSuggestions = Array.from(new Set([...myClubs, ...clubs.map(clubLabel)]));
 
-  return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.header}>
-            <TouchableOpacity onPress={onClose}>
-              <ThemedText style={styles.cancel}>Cancel</ThemedText>
-            </TouchableOpacity>
-            <ThemedText style={styles.title}>{mode === 'create' ? 'New event' : 'Edit event'}</ThemedText>
-            <View style={styles.spacer} />
-          </View>
+  // Live count so people can see how many posts a repeat will create.
+  const previewCount = useMemo(() => {
+    if (mode !== 'create' || recurrence === 'none' || !date) return 0;
+    return buildOccurrences(toEventTimeIso(date, time), recurrence, {
+      mode: endMode,
+      count: parseInt(recurrenceCount, 10) || 1,
+      until: untilDate,
+    }).length;
+  }, [mode, recurrence, date, time, endMode, recurrenceCount, untilDate]);
 
-          <ThemedText style={styles.label} themeColor="accentCyan">Cover photo (optional)</ThemedText>
+  return (
+    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={onClose}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
+        <View style={[styles.header, { borderColor: theme.border }]}>
           <TouchableOpacity
-            style={[styles.coverBox, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}
+            onPress={onClose}
+            style={styles.headerSide}
+            accessibilityRole="button"
+            accessibilityLabel={t('cancel')}
+            hitSlop={10}
+          >
+            <ThemedText style={styles.cancel} numberOfLines={1}>{t('cancel')}</ThemedText>
+          </TouchableOpacity>
+          <ThemedText style={styles.title} numberOfLines={1} accessibilityRole="header">
+            {mode === 'create' ? t('newEvent') : t('editEvent')}
+          </ThemedText>
+          <View style={styles.headerSide} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ThemedText style={styles.label} themeColor="accentCyan">{t('coverPhoto')}</ThemedText>
+          <TouchableOpacity
+            style={[
+              styles.coverBox,
+              coverUrl ? styles.coverBoxFilled : styles.coverBoxEmpty,
+              { borderColor: theme.border, backgroundColor: theme.backgroundElement },
+            ]}
             onPress={() => setCoverMenuVisible(true)}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={t('addCover')}
           >
             {uploadingCover ? (
               <ActivityIndicator color={theme.text} />
             ) : coverUrl ? (
-              <Image source={{ uri: coverUrl }} style={styles.coverImg} resizeMode="cover" />
+              <Image source={{ uri: coverUrl }} style={styles.coverImg} resizeMode="cover" accessibilityIgnoresInvertColors />
             ) : (
-              <ThemedText style={styles.coverHint} themeColor="textSecondary">＋ Add a cover photo</ThemedText>
+              <ThemedText style={styles.coverHint} themeColor="textSecondary">{t('addCover')}</ThemedText>
             )}
           </TouchableOpacity>
+          {coverUrl ? (
+            <TouchableOpacity onPress={() => setCoverUrl(null)} style={styles.removeCover} accessibilityRole="button">
+              <ThemedText style={styles.removeCoverText} themeColor="textSecondary">{t('removeCover')}</ThemedText>
+            </TouchableOpacity>
+          ) : null}
 
-          <TextField label="Title" value={title} onChangeText={setTitle} />
+          <TextField label={t('title')} value={title} onChangeText={setTitle} />
 
-          <ThemedText style={styles.label} themeColor="accentCyan">Category</ThemedText>
-          <View style={styles.clubSuggest}>
+          <ThemedText style={styles.label} themeColor="accentCyan">{t('category')}</ThemedText>
+          <View style={styles.clubSuggest} accessibilityRole="radiogroup">
             {EVENT_CATEGORIES.map((c) => {
               const selected = category === c.key;
+              const label = t(categoryTKey(c.key) as TKey);
               return (
                 <TouchableOpacity
                   key={c.key}
                   onPress={() => setCategory(selected ? null : c.key)}
+                  accessibilityRole="radio"
+                  accessibilityLabel={label}
+                  accessibilityState={{ checked: selected }}
                   style={[
                     styles.catChip,
                     { borderColor: theme.border, backgroundColor: selected ? c.color : theme.backgroundElement },
                   ]}
                 >
                   <View style={[styles.catDot, { backgroundColor: c.color, borderColor: theme.border }]} />
-                  <ThemedText style={[styles.catChipText, selected && { color: '#000' }]}>{c.label}</ThemedText>
+                  <ThemedText style={[styles.catChipText, selected && { color: '#000' }]}>{label}</ThemedText>
                 </TouchableOpacity>
               );
             })}
           </View>
           <TextField
-            label="Description"
-            placeholder="What's the vibe?"
+            label={t('description')}
             multiline
             style={styles.multiline}
             value={description}
@@ -273,7 +328,7 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
 
           <PlaceSearchField search={place} />
 
-          <ThemedText style={styles.label} themeColor="accentCyan">Hosting club / org (optional)</ThemedText>
+          <ThemedText style={styles.label} themeColor="accentCyan">{t('host')}</ThemedText>
           {hostSuggestions.length > 0 && (
             <View style={styles.clubSuggest}>
               {hostSuggestions.map((label) => (
@@ -282,68 +337,103 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
             </View>
           )}
           <TextField
-            placeholder="Type a club or org…"
+            accessibilityLabel={t('host')}
             value={host}
             onChangeText={setHost}
           />
 
-          <ThemedText style={styles.label} themeColor="accentCyan">Who can see this?</ThemedText>
-          <View style={styles.visRow}>
+          <ThemedText style={styles.label} themeColor="accentCyan">{t('whoCanSee')}</ThemedText>
+          <View style={styles.visRow} accessibilityRole="radiogroup">
             <TouchableOpacity
               style={[styles.visChip, { borderColor: theme.border, backgroundColor: visibility === 'school' ? theme.accentGreen : theme.backgroundElement }]}
               onPress={() => setVisibility('school')}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: visibility === 'school' }}
             >
-              <ThemedText style={[styles.visText, visibility === 'school' && { color: '#000' }]}>My school only</ThemedText>
+              <ThemedText style={[styles.visText, visibility === 'school' && { color: '#000' }]}>{t('mySchoolOnly')}</ThemedText>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.visChip, { borderColor: theme.border, backgroundColor: visibility === 'public' ? theme.accentCyan : theme.backgroundElement }]}
               onPress={() => setVisibility('public')}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: visibility === 'public' }}
             >
-              <ThemedText style={[styles.visText, visibility === 'public' && { color: '#000' }]}>Everyone</ThemedText>
+              <ThemedText style={[styles.visText, visibility === 'public' && { color: '#000' }]}>{t('everyone')}</ThemedText>
             </TouchableOpacity>
           </View>
 
           <TextField
-            label="Max spots (optional)"
-            placeholder="e.g. 50 — blank means unlimited"
+            label={t('maxSpots')}
             keyboardType="number-pad"
             value={capacity}
             onChangeText={setCapacity}
           />
+          <ThemedText style={styles.hint} themeColor="textSecondary">{t('maxSpotsHint')}</ThemedText>
 
-          <ThemedText style={styles.label} themeColor="accentCyan">Date</ThemedText>
-          <DateTimeField mode="date" value={date} onChange={setDate} placeholder="Pick a date" colors={theme} />
+          <ThemedText style={styles.label} themeColor="accentCyan">{t('date')}</ThemedText>
+          <DateTimeField mode="date" value={date} onChange={setDate} placeholder={t('pickDate')} colors={theme} />
 
-          <ThemedText style={styles.label} themeColor="accentCyan">Time (optional)</ThemedText>
-          <DateTimeField mode="time" value={time} onChange={setTime} placeholder="Pick a time" colors={theme} />
+          <ThemedText style={styles.label} themeColor="accentCyan">{t('time')}</ThemedText>
+          <DateTimeField mode="time" value={time} onChange={setTime} placeholder={t('pickTime')} colors={theme} />
 
           {mode === 'create' && (
             <>
-              <ThemedText style={styles.label} themeColor="accentCyan">Repeats</ThemedText>
-              <View style={styles.clubSuggest}>
+              <ThemedText style={styles.label} themeColor="accentCyan">{t('repeats')}</ThemedText>
+              <View style={styles.clubSuggest} accessibilityRole="radiogroup">
                 {RECURRENCE_OPTIONS.map((r) => (
                   <TouchableOpacity
-                    key={r.key}
-                    onPress={() => setRecurrence(r.key)}
-                    style={[styles.catChip, { borderColor: theme.border, backgroundColor: recurrence === r.key ? theme.accentGreen : theme.backgroundElement }]}
+                    key={r}
+                    onPress={() => setRecurrence(r)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: recurrence === r }}
+                    style={[styles.catChip, { borderColor: theme.border, backgroundColor: recurrence === r ? theme.accentGreen : theme.backgroundElement }]}
                   >
-                    <ThemedText style={[styles.catChipText, recurrence === r.key && { color: '#000' }]}>{r.label}</ThemedText>
+                    <ThemedText style={[styles.catChipText, recurrence === r && { color: '#000' }]}>{t(`rep_${r}` as TKey)}</ThemedText>
                   </TouchableOpacity>
                 ))}
               </View>
               {recurrence !== 'none' && (
-                <TextField
-                  label={`How many ${recurrence === 'daily' ? 'days' : recurrence === 'weekly' ? 'weeks' : 'months'}?`}
-                  placeholder="e.g. 4"
-                  keyboardType="number-pad"
-                  value={recurrenceCount}
-                  onChangeText={setRecurrenceCount}
-                />
+                <>
+                  <ThemedText style={styles.label} themeColor="accentCyan">{t('ends')}</ThemedText>
+                  <View style={styles.visRow} accessibilityRole="radiogroup">
+                    {(['count', 'until'] as EndMode[]).map((m) => (
+                      <TouchableOpacity
+                        key={m}
+                        onPress={() => setEndMode(m)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: endMode === m }}
+                        style={[styles.visChip, { borderColor: theme.border, backgroundColor: endMode === m ? theme.accentGreen : theme.backgroundElement }]}
+                      >
+                        <ThemedText style={[styles.visText, endMode === m && { color: '#000' }]}>
+                          {m === 'count' ? t('endsAfter') : t('endsOn')}
+                        </ThemedText>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {endMode === 'count' ? (
+                    <TextField
+                      label={t('howManyTimes')}
+                      keyboardType="number-pad"
+                      value={recurrenceCount}
+                      onChangeText={setRecurrenceCount}
+                    />
+                  ) : (
+                    <>
+                      <ThemedText style={styles.label} themeColor="accentCyan">{t('endDate')}</ThemedText>
+                      <DateTimeField mode="date" value={untilDate} onChange={setUntilDate} placeholder={t('pickDate')} colors={theme} />
+                    </>
+                  )}
+                  {previewCount > 0 ? (
+                    <ThemedText style={styles.hint} themeColor="textSecondary" accessibilityLiveRegion="polite">
+                      {t('repeatSummary', { count: previewCount })}
+                    </ThemedText>
+                  ) : null}
+                </>
               )}
             </>
           )}
 
-          {formError ? <ThemedText style={styles.error}>{formError}</ThemedText> : null}
+          {formError ? <ThemedText style={styles.error} accessibilityLiveRegion="assertive">{formError}</ThemedText> : null}
 
           <ShadowSurface
             backgroundColor={theme.accentYellow}
@@ -356,8 +446,8 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
           >
             <ThemedText style={styles.submitText}>
               {saving
-                ? mode === 'create' ? 'Posting...' : 'Saving...'
-                : mode === 'create' ? 'Post event' : 'Save changes'}
+                ? mode === 'create' ? t('posting') : t('saving')
+                : mode === 'create' ? t('postEvent') : t('saveChanges')}
             </ThemedText>
           </ShadowSurface>
         </ScrollView>
@@ -374,19 +464,30 @@ export function EventFormModal({ visible, mode, initialValues, onClose, onSubmit
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
-  content: { padding: Spacing.four, paddingBottom: 80 },
+  // Centered column so the form doesn't stretch edge to edge on a laptop.
+  content: { padding: Spacing.four, paddingBottom: 80, width: '100%', maxWidth: 640, alignSelf: 'center' },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.two,
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.four, paddingVertical: Spacing.three,
+    borderBottomWidth: 1.5, width: '100%', maxWidth: 640, alignSelf: 'center',
   },
-  cancel: { fontSize: 15, fontWeight: '700', width: 50 },
-  title: { fontSize: 18, fontWeight: '900' },
-  spacer: { width: 50 },
+  // Equal-width sides keep the title centered; flex lets "Cancel" (or a
+  // longer translation) fit on one line instead of wrapping.
+  headerSide: { flex: 1, minWidth: 64 },
+  cancel: { fontSize: 15, fontWeight: '800' },
+  title: { fontSize: 18, fontWeight: '900', textAlign: 'center', flexShrink: 0 },
+  hint: { fontSize: 12, fontWeight: '600', marginTop: Spacing.one },
+  removeCover: { alignSelf: 'flex-end', paddingVertical: Spacing.one, marginBottom: Spacing.one },
+  removeCoverText: { fontSize: 12, fontWeight: '800', textDecorationLine: 'underline' },
   multiline: { height: 80, textAlignVertical: 'top' },
   clubSuggest: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginBottom: Spacing.two },
   coverBox: {
-    width: '100%', aspectRatio: 16 / 9, borderWidth: 2, borderRadius: 14,
+    width: '100%', borderWidth: 2, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: Spacing.two,
   },
+  // Empty: a short dashed drop zone. With a photo: a 16:9 preview capped in
+  // height so it never takes over the whole screen on wide windows.
+  coverBoxEmpty: { height: 110, borderStyle: 'dashed' },
+  coverBoxFilled: { aspectRatio: 16 / 9, maxHeight: 240 },
   coverImg: { width: '100%', height: '100%' },
   coverHint: { fontSize: 14, fontWeight: '800' },
   catChip: {

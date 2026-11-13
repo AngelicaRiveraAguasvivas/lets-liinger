@@ -226,12 +226,12 @@ export default function UserProfileScreen() {
           <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
             <ThemedText style={[styles.back, { color: colors.text }]}>‹ back</ThemedText>
           </TouchableOpacity>
-          {selfId && <IconButton emoji="⋯" onPress={() => setMenuVisible(true)} />}
+          {selfId && <IconButton emoji="⋯" accessibilityLabel="More options" onPress={() => setMenuVisible(true)} />}
         </View>
 
         {reported && (
           <ThemedText style={styles.reported} themeColor="textSecondary">
-            ✓ Reported. Thanks — our team will review this.
+            ✓ Reported. Thanks, our team will review this.
           </ThemedText>
         )}
 
@@ -338,7 +338,7 @@ export default function UserProfileScreen() {
         )}
 
         {profile.is_private && !following && (
-          <ThemedText style={[styles.section, { color: colors.text }]}>This account is private — follow to see their events.</ThemedText>
+          <ThemedText style={[styles.section, { color: colors.text }]}>This account is private. Follow to see their events.</ThemedText>
         )}
 
         {(!profile.is_private || following) && hosting.length > 0 && (

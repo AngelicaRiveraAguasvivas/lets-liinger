@@ -1,4 +1,4 @@
-import { StyleProp, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { AccessibilityRole, StyleProp, TouchableOpacity, View, ViewStyle } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 
@@ -13,6 +13,9 @@ interface ShadowSurfaceProps {
   style?: StyleProp<ViewStyle>;
   wrapperStyle?: StyleProp<ViewStyle>;
   activeOpacity?: number;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+  accessibilityRole?: AccessibilityRole;
 }
 
 // The app's recurring "neobrutalist" surface: a solid-border box offset over a
@@ -29,6 +32,9 @@ export function ShadowSurface({
   style,
   wrapperStyle,
   activeOpacity = 0.9,
+  accessibilityLabel,
+  accessibilityHint,
+  accessibilityRole,
 }: ShadowSurfaceProps) {
   const theme = useTheme();
   const Wrapper = onPress ? TouchableOpacity : View;
@@ -49,6 +55,11 @@ export function ShadowSurface({
         onPress={onPress}
         disabled={disabled}
         activeOpacity={onPress ? activeOpacity : undefined}
+        accessible={onPress ? true : undefined}
+        accessibilityRole={accessibilityRole ?? (onPress ? 'button' : undefined)}
+        accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
+        accessibilityState={onPress ? { disabled: !!disabled } : undefined}
       >
         {children}
       </Wrapper>
