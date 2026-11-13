@@ -21,7 +21,7 @@ import { supabase } from '../supabaseClient';
 
 const INTEREST_OPTIONS = [
   'Music', 'Greek Life', 'Sports', 'Gaming / Esports', 'Art & Design',
-  'Academic', 'Cultural', 'Volunteering', 'Business', 'Tech / Engineering',
+  'Academic', 'Career', 'Cultural', 'Volunteering', 'Business', 'Tech / Engineering',
   'Film & Media', 'Dance', 'Outdoors', 'Health & Wellness', 'Food',
 ];
 
@@ -140,7 +140,7 @@ export default function OnboardingScreen() {
       // 23505 = unique constraint violation (username already taken)
       setErrorMsg(
         error.code === '23505'
-          ? 'That username is already taken — try another.'
+          ? 'That username is already taken. Try another.'
           : error.message
       );
       setSaving(false);
@@ -230,7 +230,7 @@ export default function OnboardingScreen() {
         ) : (
           <SchoolPicker value={university} onChange={setUniversity} />
         )}
-        <TextField label="Grad year" placeholder="2028" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
+        <TextField label="Grad year" keyboardType="number-pad" value={gradYear} onChangeText={setGradYear} />
         <View style={styles.row2}>
           <TextField containerStyle={styles.flex1} label="Major" value={major} onChangeText={setMajor} />
           <TextField containerStyle={styles.flex1} label="Minor (optional)" value={minor} onChangeText={setMinor} />
@@ -245,7 +245,7 @@ export default function OnboardingScreen() {
         </View>
 
         <ThemedText style={styles.label} themeColor="accentCyan">Your clubs</ThemedText>
-        <ThemedText style={styles.hint} themeColor="textSecondary">Pick the clubs you&apos;re in — or add a new one.</ThemedText>
+        <ThemedText style={styles.hint} themeColor="textSecondary">Pick the clubs you&apos;re in, or add a new one.</ThemedText>
         <ClubChipPicker
           clubs={clubs}
           isSelected={(label) => myClubs.includes(label)}

@@ -11,13 +11,14 @@ interface ChipProps {
   onPress?: () => void;
   selectedColor?: string;
   style?: StyleProp<ViewStyle>;
+  accessibilityLabel?: string;
 }
 
 // Pill-shaped selectable chip used for sort options, filters, interests, and
 // club pickers. Selected text switches to black to stay legible against the
 // bright accent colors, matching how the app renders text on every other
 // colored button.
-export function Chip({ label, selected, dashed, onPress, selectedColor, style }: ChipProps) {
+export function Chip({ label, selected, dashed, onPress, selectedColor, style, accessibilityLabel }: ChipProps) {
   const theme = useTheme();
   return (
     <TouchableOpacity
@@ -29,6 +30,10 @@ export function Chip({ label, selected, dashed, onPress, selectedColor, style }:
         style,
       ]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ selected: !!selected }}
+      hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
     >
       <ThemedText style={[styles.text, selected && styles.textSelected]}>{label}</ThemedText>
     </TouchableOpacity>

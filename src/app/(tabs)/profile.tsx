@@ -10,6 +10,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { GuestProfile } from '@/components/guest';
+import { useIsGuest } from '@/hooks/app-prefs-context';
+
 import { ThemedText } from '@/components/themed-text';
 import { Badge } from '@/components/ui/badge';
 import { Chip } from '@/components/ui/chip';
@@ -23,7 +26,13 @@ import { clubLabel } from '@/lib/clubs';
 import { getFollowCounts } from '../../lib/follows';
 import { supabase } from '../../supabaseClient';
 
+// Guests see a sample version of this tab instead of real account data.
 export default function ProfileScreen() {
+  const isGuest = useIsGuest();
+  return isGuest ? <GuestProfile /> : <ProfileScreenSigned />;
+}
+
+function ProfileScreenSigned() {
   const colors = useTheme();
   const router = useRouter();
 
@@ -189,8 +198,8 @@ export default function ProfileScreen() {
         <View style={styles.header}>
           <ThemedText style={dynamicStyles.headerText}>my profile</ThemedText>
           <View style={styles.headerActions}>
-            <IconButton icon={require('@/assets/images/icons/search.png')} onPress={() => router.push('/search')} />
-            <IconButton emoji="⚙️" onPress={() => router.push('/settings')} />
+            <IconButton icon={require('@/assets/images/icons/search.png')} accessibilityLabel="Search" onPress={() => router.push('/search')} />
+            <IconButton emoji="⚙️" accessibilityLabel="Settings" onPress={() => router.push('/settings')} />
           </View>
         </View>
 
@@ -312,7 +321,7 @@ export default function ProfileScreen() {
               </View>
             )}
             <TextField placeholder="Club or org name" value={newClubName} onChangeText={setNewClubName} containerStyle={styles.addClubField} />
-            <TextField placeholder="Your role (e.g. Member)" value={newClubRole} onChangeText={setNewClubRole} containerStyle={styles.addClubField} />
+            <TextField placeholder="Your role" value={newClubRole} onChangeText={setNewClubRole} containerStyle={styles.addClubField} />
             <ShadowSurface backgroundColor={colors.accentGreen} radius={12} offset={3} wrapperStyle={styles.addClubBtnShadow} style={styles.addClubBtn} onPress={() => addClubToProfile(newClubName, newClubRole)}>
               <ThemedText style={styles.addClubBtnText}>Add to my clubs</ThemedText>
             </ShadowSurface>

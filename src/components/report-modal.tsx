@@ -54,7 +54,7 @@ export function ReportModal({ visible, title = 'Report', onClose, onSubmit }: Re
 
           <TextInput
             style={[styles.detail, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
-            placeholder="Add details (optional)…"
+            placeholder="Add details (optional)"
             placeholderTextColor={colors.textSecondary}
             value={detail}
             onChangeText={setDetail}

@@ -13,6 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useIsGuest } from '@/hooks/app-prefs-context';
+import { getDemoEvents } from '@/lib/demo';
 import { supabase } from '../../supabaseClient';
 
 interface CalendarEvent {
@@ -45,15 +47,18 @@ export default function CalendarScreen() {
   const [scheduledEvents, setScheduledEvents] = useState<CalendarEvent[]>([]);
 
   const accents = [colors.accentPink, colors.accentCyan, colors.accentYellow, colors.accentGreen];
+  const isGuest = useIsGuest();
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        const { data } = await supabase
-          .from('events')
-          .select('id, title, event_time, location, host, creator:profiles!events_created_by_fkey(username, display_name)')
-          .order('event_time', { ascending: true });
+        const { data } = isGuest
+          ? { data: getDemoEvents().map((e) => ({ id: e.id, title: e.title, event_time: e.event_time, location: e.location, host: e.host, creator: null })) }
+          : await supabase
+              .from('events')
+              .select('id, title, event_time, location, host, creator:profiles!events_created_by_fkey(username, display_name)')
+              .order('event_time', { ascending: true });
 
         if (cancelled) return;
 
@@ -86,7 +91,7 @@ export default function CalendarScreen() {
         setScheduledEvents(mapped);
       })();
       return () => { cancelled = true; };
-    }, [])
+    }, [isGuest])
   );
 
   const monthNames = [

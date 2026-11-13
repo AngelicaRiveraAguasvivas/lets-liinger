@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -12,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/empty-state';
+import { GuestBanner, GuestLockedModal } from '@/components/guest';
 import { EventFormModal, EventFormSubmitValues } from '@/components/event-form-modal';
 import { EventCardSkeleton } from '@/components/skeleton';
 import { ThemedText } from '@/components/themed-text';
@@ -19,10 +21,13 @@ import { Chip } from '@/components/ui/chip';
 import { IconButton } from '@/components/ui/icon-button';
 import { ShadowSurface } from '@/components/ui/shadow-surface';
 import { Spacing } from '@/constants/theme';
+import { useAppPrefs, useT } from '@/hooks/app-prefs-context';
 import { useNotifications } from '@/hooks/notifications-context';
 import { useTheme } from '@/hooks/use-theme';
 import { useUserCoords } from '@/hooks/use-user-coords';
-import { EVENT_CATEGORIES, categoryColor, categoryLabel } from '@/lib/categories';
+import { EVENT_CATEGORIES, categoryColor, categoryLabel, categoryTKey } from '@/lib/categories';
+import { DEMO_SCHOOL, getDemoEvents } from '@/lib/demo';
+import type { TKey } from '@/lib/i18n';
 import { getUnreadNotificationCount } from '@/lib/notifications';
 import { cancelRsvp, rsvpToEvent } from '@/lib/rsvp';
 import { getFollowingIds } from '../../lib/follows';
@@ -46,17 +51,21 @@ function dayKey(ms: number | null): string {
 }
 
 // Friendly date-section label: "Today" / "Tomorrow" / "Monday, Sep 8".
-function dayLabel(ms: number | null): string {
-  if (ms == null) return 'Date TBD';
+function dayLabel(
+  ms: number | null,
+  words: { today: string; tomorrow: string; tbd: string },
+  locale: string
+): string {
+  if (ms == null) return words.tbd;
   const d = new Date(ms);
   const now = new Date();
   const tomorrow = new Date(now);
   tomorrow.setDate(now.getDate() + 1);
   const sameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  if (sameDay(d, now)) return 'Today';
-  if (sameDay(d, tomorrow)) return 'Tomorrow';
-  return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  if (sameDay(d, now)) return words.today;
+  if (sameDay(d, tomorrow)) return words.tomorrow;
+  return d.toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
 interface EnrichedEvent {
@@ -85,19 +94,25 @@ interface EnrichedEvent {
 }
 
 // "Posted 3h ago" style relative label.
-function formatPosted(iso: string | null): string {
+function formatPosted(iso: string | null, justNow = 'just now', locale?: string): string {
   if (!iso) return '';
   const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T'));
   if (isNaN(d.getTime())) return '';
   const diff = Date.now() - d.getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return justNow;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  // Use the browser/OS translation of "5 hours ago" when it's available
+  // (Hermes on older devices may not have Intl.RelativeTimeFormat).
+  const rtf =
+    locale && typeof Intl !== 'undefined' && (Intl as any).RelativeTimeFormat
+      ? new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'short' })
+      : null;
+  if (mins < 60) return rtf ? rtf.format(-mins, 'minute') : `${mins}m ago`;
+  if (hrs < 24) return rtf ? rtf.format(-hrs, 'hour') : `${hrs}h ago`;
+  if (days < 7) return rtf ? rtf.format(-days, 'day') : `${days}d ago`;
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 // Haversine distance in km between two coordinates.
@@ -140,20 +155,6 @@ function trendingScore(e: { likeCount: number; rsvpCount: number; created_at: st
   return (e.likeCount + 2 * e.rsvpCount + 1) / Math.pow(hoursSince(e.created_at), 0.6);
 }
 
-// Shift a naive "YYYY-MM-DDTHH:MM:SS" by i recurrence steps.
-function shiftIso(iso: string, rec: 'none' | 'daily' | 'weekly' | 'monthly', i: number): string {
-  if (i === 0 || rec === 'none') return iso;
-  const [datePart, timePart = '00:00:00'] = iso.split('T');
-  const [y, m, d] = datePart.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  if (rec === 'daily') dt.setDate(dt.getDate() + i);
-  else if (rec === 'weekly') dt.setDate(dt.getDate() + 7 * i);
-  else if (rec === 'monthly') dt.setMonth(dt.getMonth() + i);
-  const mm = String(dt.getMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getDate()).padStart(2, '0');
-  return `${dt.getFullYear()}-${mm}-${dd}T${timePart}`;
-}
-
 // A v4-ish id to tie a recurring series together (Hermes lacks crypto.randomUUID).
 function uuidish(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -164,9 +165,23 @@ function uuidish(): string {
 
 const PAGE_SIZE = 20;
 
+// Last feed we loaded, saved on the device so the next open shows events
+// right away while fresh data loads in the background.
+const FEED_CACHE_KEY = 'letsliinger:feed-cache:v1';
+const FEED_CACHE_MAX_AGE = 1000 * 60 * 60 * 24 * 3; // 3 days
+
+interface FeedCache {
+  savedAt: number;
+  userId: string | null;
+  events: EnrichedEvent[];
+  myUniversity: string | null;
+}
+
 export default function HomeScreen() {
   const colors = useTheme();
   const router = useRouter();
+  const { t, locale } = useT();
+  const { isGuest } = useAppPrefs();
   const { tag } = useLocalSearchParams<{ tag?: string }>();
   const { markEventsSeen } = useNotifications();
   const { coords: userCoords, request: requestUserCoords } = useUserCoords(false);
@@ -189,8 +204,73 @@ export default function HomeScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showPast, setShowPast] = useState(false);
+  const [guestLockVisible, setGuestLockVisible] = useState(false);
+  // Events a guest "posts" while trying the create flow. Kept in memory only.
+  const [guestPosted, setGuestPosted] = useState<EnrichedEvent[]>([]);
+  // Guest likes/RSVPs, so toggling survives switching tabs.
+  const [guestToggles, setGuestToggles] = useState<Record<string, { liked?: boolean; rsvped?: boolean }>>({});
+
+  // Show the saved feed instantly on open (signed-in only).
+  useEffect(() => {
+    if (isGuest || typeof window === 'undefined') return;
+    let cancelled = false;
+    AsyncStorage.getItem(FEED_CACHE_KEY)
+      .then((raw) => {
+        if (!raw || cancelled) return;
+        const cache = JSON.parse(raw) as FeedCache;
+        if (Date.now() - cache.savedAt > FEED_CACHE_MAX_AGE) return;
+        setEvents((prev) => (prev.length ? prev : cache.events));
+        setMyUniversity((prev) => prev ?? cache.myUniversity);
+        setLoading(false);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isGuest]);
 
   const fetchAll = useCallback(async () => {
+    if (isGuest) {
+      // Guest mode: sample events, no network calls.
+      const demo: EnrichedEvent[] = getDemoEvents().map((e) => {
+        const tog = guestToggles[e.id] ?? {};
+        const liked = !!tog.liked;
+        const rsvped = !!tog.rsvped;
+        return {
+          id: e.id,
+          title: e.title,
+          description: e.description,
+          location: e.location,
+          event_time: e.event_time,
+          latitude: e.latitude,
+          longitude: e.longitude,
+          created_at: e.created_at,
+          hostName: e.host,
+          postedBy: e.postedBy,
+          createdBy: `demo-user-${e.postedBy}`,
+          likeCount: e.likeCount + (liked ? 1 : 0),
+          likedByMe: liked,
+          rsvpCount: e.rsvpCount + (rsvped ? 1 : 0),
+          rsvpers: e.rsvpers,
+          rsvpedByMe: rsvped,
+          distance: userCoords ? distanceKm(userCoords, { lat: e.latitude, lng: e.longitude }) : null,
+          coverUrl: null,
+          category: e.category,
+          school: DEMO_SCHOOL,
+          visibility: 'public',
+          tags: e.tags,
+        };
+      });
+      setUserId(null);
+      setMyUniversity(DEMO_SCHOOL);
+      setMyInterests(['Music', 'Career']);
+      setFollowingIds(new Set(['demo-user-@mariaq', 'demo-user-@sofi.r']));
+      setUnreadNotifs(0);
+      setHasMore(false);
+      setEvents([...guestPosted, ...demo]);
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id ?? null);
 
@@ -219,9 +299,11 @@ export default function HomeScreen() {
     setFollowingIds(following);
     setUnreadNotifs(unread);
 
+    let uniForCache: string | null = null;
     if (user) {
       const { data: prof } = await supabase.from('profiles').select('university, interests').eq('id', user.id).single();
       const uni = (prof as any)?.university ?? null;
+      uniForCache = uni;
       setMyUniversity(uni);
       setMyInterests(((prof as any)?.interests ?? []) as string[]);
       if (!uni) setScope('all'); // no school set → nothing to scope to
@@ -289,7 +371,18 @@ export default function HomeScreen() {
     setEvents(enriched);
     setLoading(false);
     setLoadingMore(false);
-  }, [userCoords, limit, showPast]);
+
+    // Save the default view (first page, upcoming) for an instant next open.
+    if (!showPast && limit === PAGE_SIZE && typeof window !== 'undefined') {
+      const cache: FeedCache = {
+        savedAt: Date.now(),
+        userId: user?.id ?? null,
+        events: enriched,
+        myUniversity: uniForCache,
+      };
+      AsyncStorage.setItem(FEED_CACHE_KEY, JSON.stringify(cache)).catch(() => {});
+    }
+  }, [userCoords, limit, showPast, isGuest, guestPosted, guestToggles]);
 
   // A hashtag tapped elsewhere deep-links here as ?tag=…; reflect it as a filter.
   useEffect(() => {
@@ -318,6 +411,13 @@ export default function HomeScreen() {
   // and roll back only if the write actually fails. Avoids refetching every
   // event/like/rsvp in the feed for a single-row change.
   async function toggleRsvp(ev: EnrichedEvent) {
+    if (isGuest) {
+      setGuestToggles((g) => ({ ...g, [ev.id]: { ...g[ev.id], rsvped: !ev.rsvpedByMe } }));
+      setEvents((prev) => prev.map((e) => (e.id === ev.id
+        ? { ...e, rsvpedByMe: !e.rsvpedByMe, rsvpCount: e.rsvpCount + (e.rsvpedByMe ? -1 : 1) }
+        : e)));
+      return;
+    }
     if (!userId) return;
     const wasRsvped = ev.rsvpedByMe;
     const prevEvents = events;
@@ -339,6 +439,13 @@ export default function HomeScreen() {
   }
 
   async function toggleLike(ev: EnrichedEvent) {
+    if (isGuest) {
+      setGuestToggles((g) => ({ ...g, [ev.id]: { ...g[ev.id], liked: !ev.likedByMe } }));
+      setEvents((prev) => prev.map((e) => (e.id === ev.id
+        ? { ...e, likedByMe: !e.likedByMe, likeCount: e.likeCount + (e.likedByMe ? -1 : 1) }
+        : e)));
+      return;
+    }
     if (!userId) return;
     const wasLiked = ev.likedByMe;
     const prevEvents = events;
@@ -359,6 +466,35 @@ export default function HomeScreen() {
   }
 
   async function handleCreateSubmit(values: EventFormSubmitValues) {
+    if (isGuest) {
+      // Let guests try the full create flow; the result only lives on screen.
+      const made: EnrichedEvent[] = values.occurrences.map((when, i) => ({
+        id: `guest-${Date.now()}-${i}`,
+        title: values.title,
+        description: values.description || null,
+        location: values.place.name,
+        event_time: when,
+        latitude: values.place.lat,
+        longitude: values.place.lng,
+        created_at: new Date().toISOString(),
+        hostName: values.host || '@guest',
+        postedBy: '@guest',
+        createdBy: null,
+        likeCount: 0,
+        likedByMe: false,
+        rsvpCount: 0,
+        rsvpers: [],
+        rsvpedByMe: false,
+        distance: null,
+        coverUrl: values.coverUrl,
+        category: values.category,
+        school: DEMO_SCHOOL,
+        visibility: 'public',
+        tags: [],
+      }));
+      setGuestPosted((prev) => [...made, ...prev]);
+      return;
+    }
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: 'You need to be signed in.' };
 
@@ -383,11 +519,10 @@ export default function HomeScreen() {
 
     // Recurring events are materialized as separate rows sharing a series_id,
     // so they slot straight into the feed/map with no special-casing on read.
-    const occurrences = values.recurrence === 'none' ? 1 : values.recurrenceCount;
-    const seriesId = occurrences > 1 ? uuidish() : null;
-    const rows = Array.from({ length: occurrences }, (_, i) => ({
+    const seriesId = values.occurrences.length > 1 ? uuidish() : null;
+    const rows = values.occurrences.map((when) => ({
       ...base,
-      event_time: shiftIso(values.eventTimeIso, values.recurrence, i),
+      event_time: when,
       series_id: seriesId,
     }));
 
@@ -473,7 +608,7 @@ export default function HomeScreen() {
             const key = dayKey(ms);
             const last = groups[groups.length - 1];
             if (last && last.key === key) last.events.push(ev);
-            else groups.push({ key, label: dayLabel(ms), events: [ev] });
+            else groups.push({ key, label: dayLabel(ms, { today: t('today'), tomorrow: t('tomorrow'), tbd: t('dateTBD') }, locale), events: [ev] });
           }
           return groups;
         })()
@@ -504,14 +639,9 @@ export default function HomeScreen() {
     },
   }), [colors]);
 
-  const sortOptions: { key: SortMode; label: string }[] = [
-    { key: 'foryou', label: 'For You' },
-    { key: 'trending', label: 'Trending' },
-    { key: 'upcoming', label: 'Upcoming' },
-    { key: 'recent', label: 'Recent' },
-    { key: 'popular', label: 'Popular' },
-    { key: 'nearby', label: 'Nearby' },
-  ];
+  const sortOptions: { key: SortMode; label: string }[] = (
+    ['foryou', 'trending', 'upcoming', 'recent', 'popular', 'nearby'] as SortMode[]
+  ).map((key) => ({ key, label: t(`sort_${key}` as TKey) }));
 
   function clearTag() {
     setTagFilter(null);
@@ -526,21 +656,27 @@ export default function HomeScreen() {
       offset={6}
       wrapperStyle={styles.cardShadow}
       style={styles.card}
-      onPress={() => router.push(`/event-detail?id=${event.id}`)}
+      onPress={() => {
+        if (event.id.startsWith('guest-')) return; // guest-made posts have no detail page
+        router.push(`/event-detail?id=${event.id}`);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`${event.title}. ${event.location ?? ''}. ${formatEventTime(event.event_time, locale, t('dateTBD'))}`}
+      accessibilityHint={t('tapToView')}
     >
       {event.coverUrl ? (
         <Image source={{ uri: event.coverUrl }} style={styles.cardCover} resizeMode="cover" />
       ) : null}
       {categoryLabel(event.category) ? (
         <View style={[styles.cardCategory, { backgroundColor: categoryColor(event.category), borderColor: colors.border }]}>
-          <ThemedText style={styles.cardCategoryText}>{categoryLabel(event.category)}</ThemedText>
+          <ThemedText style={styles.cardCategoryText}>{event.category ? t(categoryTKey(event.category) as TKey) : categoryLabel(event.category)}</ThemedText>
         </View>
       ) : null}
       <ThemedText style={styles.eventTitle}>{event.title}</ThemedText>
 
       <View style={styles.metaRow}>
-        <ThemedText style={styles.metaLabel}>HOSTED BY:</ThemedText>
-        {event.hostName.startsWith('@') ? (
+        <ThemedText style={styles.metaLabel}>{t('hostedBy')}</ThemedText>
+        {event.hostName.startsWith('@') || isGuest ? (
           <ThemedText style={styles.metaValue}>{event.hostName}</ThemedText>
         ) : (
           <TouchableOpacity onPress={() => router.push(`/club?name=${encodeURIComponent(event.hostName)}`)}>
@@ -555,7 +691,7 @@ export default function HomeScreen() {
 
       <View style={styles.detailItem}>
         <ThemedText style={styles.detailText}>
-          {formatEventTime(event.event_time)}
+          {formatEventTime(event.event_time, locale, t('dateTBD'))}
         </ThemedText>
       </View>
 
@@ -569,7 +705,7 @@ export default function HomeScreen() {
 
       {event.rsvpCount > 0 && (
         <ThemedText style={styles.rsvpLine} themeColor="textSecondary">
-          {rsvpSummary(event.rsvpers, event.rsvpCount)}
+          {rsvpSummary(event.rsvpers, event.rsvpCount, t('going'))}
         </ThemedText>
       )}
 
@@ -580,9 +716,12 @@ export default function HomeScreen() {
             { backgroundColor: event.rsvpedByMe ? colors.accentGreen : colors.accentYellow },
           ]}
           onPress={() => toggleRsvp(event)}
+          accessibilityRole="button"
+          accessibilityLabel={`${t('rsvp')}: ${event.title}`}
+          accessibilityState={{ selected: event.rsvpedByMe }}
         >
           <ThemedText style={styles.buttonText}>
-            {event.rsvpedByMe ? "✓ RSVP'D!" : 'RSVP'}
+            {event.rsvpedByMe ? t('rsvpd') : t('rsvp')}
           </ThemedText>
         </TouchableOpacity>
 
@@ -592,6 +731,9 @@ export default function HomeScreen() {
             { backgroundColor: event.likedByMe ? colors.accentPink : colors.accentCyan, flex: 0.5 },
           ]}
           onPress={() => toggleLike(event)}
+          accessibilityRole="button"
+          accessibilityLabel={`${event.likedByMe ? t('unlike') : t('like')}. ${event.likeCount}`}
+          accessibilityState={{ selected: event.likedByMe }}
         >
           <ThemedText style={styles.buttonText}>
             {event.likedByMe ? '💖' : '🤍'} {event.likeCount}
@@ -600,19 +742,19 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.cardFooter}>
-        {event.createdBy && event.createdBy !== userId ? (
+        {event.createdBy && event.createdBy !== userId && !isGuest ? (
           <TouchableOpacity onPress={() => router.push(`/user?id=${event.createdBy}`)}>
             <ThemedText style={styles.postedText} themeColor="textSecondary">
-              Posted {formatPosted(event.created_at)} by {event.postedBy}
+              {t('postedBy', { time: formatPosted(event.created_at, t('justNow'), locale), who: event.postedBy })}
             </ThemedText>
           </TouchableOpacity>
         ) : (
           <ThemedText style={styles.postedText} themeColor="textSecondary">
-            Posted {formatPosted(event.created_at)} by {event.postedBy}
+            {t('postedBy', { time: formatPosted(event.created_at, t('justNow'), locale), who: event.postedBy })}
           </ThemedText>
         )}
         <ThemedText style={styles.commentHint} themeColor="textSecondary">
-          Tap to view & comment →
+          {t('tapToView')}
         </ThemedText>
       </View>
     </ShadowSurface>
@@ -622,13 +764,23 @@ export default function HomeScreen() {
     <SafeAreaView style={dynamicStyles.safeArea} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <ThemedText style={dynamicStyles.headerText} numberOfLines={1} adjustsFontSizeToFit>
+          <ThemedText style={dynamicStyles.headerText} numberOfLines={1} adjustsFontSizeToFit accessibilityRole="header">
             LetsLiinger
           </ThemedText>
           <View style={styles.headerActions}>
-            <IconButton icon={require('@/assets/images/icons/search.png')} size={20} onPress={() => router.push('/search')} />
+            <IconButton
+              icon={require('@/assets/images/icons/search.png')}
+              size={20}
+              accessibilityLabel={t('searchLabel')}
+              onPress={() => (isGuest ? setGuestLockVisible(true) : router.push('/search'))}
+            />
             <View>
-              <IconButton icon={require('@/assets/images/icons/bell.png')} size={20} onPress={() => router.push('/notifications')} />
+              <IconButton
+                icon={require('@/assets/images/icons/bell.png')}
+                size={20}
+                accessibilityLabel={unreadNotifs > 0 ? `${t('notificationsLabel')}, ${unreadNotifs}` : t('notificationsLabel')}
+                onPress={() => (isGuest ? setGuestLockVisible(true) : router.push('/notifications'))}
+              />
               {unreadNotifs > 0 && (
                 <View style={[styles.badge, { backgroundColor: colors.accentPink, borderColor: colors.border }]}>
                   <ThemedText style={styles.badgeText}>{unreadNotifs > 9 ? '9+' : unreadNotifs}</ThemedText>
@@ -638,6 +790,8 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {isGuest ? <GuestBanner /> : null}
+
         <ShadowSurface
           backgroundColor={colors.backgroundElement}
           radius={16}
@@ -645,16 +799,22 @@ export default function HomeScreen() {
           wrapperStyle={styles.searchShadow}
           style={styles.searchContainer}
         >
-          <ThemedText style={styles.searchIcon}>🔍</ThemedText>
+          <ThemedText style={styles.searchIcon} importantForAccessibility="no" accessibilityElementsHidden>🔍</ThemedText>
           <TextInput
             style={dynamicStyles.input}
-            placeholder="Search events…"
+            accessibilityLabel={t('searchEvents')}
+            placeholder={t('searchEvents')}
             placeholderTextColor={colors.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity style={dynamicStyles.searchBtn} onPress={() => setSearchQuery('')}>
+            <TouchableOpacity
+              style={dynamicStyles.searchBtn}
+              onPress={() => setSearchQuery('')}
+              accessibilityRole="button"
+              accessibilityLabel={t('clearSearch')}
+            >
               <ThemedText style={styles.boldText}>✕</ThemedText>
             </TouchableOpacity>
           )}
@@ -668,7 +828,7 @@ export default function HomeScreen() {
           style={styles.createBtn}
           onPress={() => setCreateVisible(true)}
         >
-          <ThemedText style={styles.boldText}>+ CREATE EVENT</ThemedText>
+          <ThemedText style={styles.boldText}>{t('createEvent')}</ThemedText>
         </ShadowSurface>
 
         {tagFilter ? (
@@ -695,13 +855,13 @@ export default function HomeScreen() {
             />
           ))}
           <Chip
-            label="Past"
+            label={t('past')}
             selected={showPast}
             selectedColor={colors.accentCyan}
             onPress={togglePast}
           />
           <Chip
-            label="Following"
+            label={t('following')}
             selected={followingOnly}
             selectedColor={colors.accentGreen}
             onPress={() => setFollowingOnly((v) => !v)}
@@ -713,17 +873,21 @@ export default function HomeScreen() {
           <TouchableOpacity
             onPress={() => setScope('mine')}
             disabled={!myUniversity}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: scope === 'mine', disabled: !myUniversity }}
             style={[styles.scopeChip, { borderColor: colors.border, backgroundColor: scope === 'mine' ? colors.accentGreen : 'transparent', opacity: myUniversity ? 1 : 0.4 }]}
           >
             <ThemedText style={[styles.scopeText, scope === 'mine' && { color: '#000' }]}>
-              {myUniversity ? 'My school' : 'Set your school'}
+              {myUniversity ? t('mySchool') : t('setSchool')}
             </ThemedText>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setScope('all')}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: scope === 'all' }}
             style={[styles.scopeChip, { borderColor: colors.border, backgroundColor: scope === 'all' ? colors.accentCyan : 'transparent' }]}
           >
-            <ThemedText style={[styles.scopeText, scope === 'all' && { color: '#000' }]}>All schools</ThemedText>
+            <ThemedText style={[styles.scopeText, scope === 'all' && { color: '#000' }]}>{t('allSchools')}</ThemedText>
           </TouchableOpacity>
         </View>
 
@@ -735,20 +899,26 @@ export default function HomeScreen() {
         >
           <TouchableOpacity
             onPress={() => setCategoryFilter(null)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: categoryFilter === null }}
             style={[styles.catFilterChip, { borderColor: colors.border, backgroundColor: categoryFilter === null ? colors.accentPink : 'transparent' }]}
           >
-            <ThemedText style={styles.catFilterText}>All</ThemedText>
+            <ThemedText style={[styles.catFilterText, categoryFilter === null && { color: '#000' }]}>{t('all')}</ThemedText>
           </TouchableOpacity>
           {EVENT_CATEGORIES.map((c) => {
             const on = categoryFilter === c.key;
+            const label = t(categoryTKey(c.key) as TKey);
             return (
               <TouchableOpacity
                 key={c.key}
                 onPress={() => setCategoryFilter(on ? null : c.key)}
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityState={{ selected: on }}
                 style={[styles.catFilterChip, { borderColor: colors.border, backgroundColor: on ? c.color : 'transparent' }]}
               >
                 <View style={[styles.catFilterDot, { backgroundColor: c.color, borderColor: colors.border }]} />
-                <ThemedText style={[styles.catFilterText, on && { color: '#000' }]}>{c.label}</ThemedText>
+                <ThemedText style={[styles.catFilterText, on && { color: '#000' }]}>{label}</ThemedText>
               </TouchableOpacity>
             );
           })}
@@ -756,7 +926,7 @@ export default function HomeScreen() {
 
         {sortMode === 'nearby' && !userCoords && (
           <ThemedText style={styles.noteText} themeColor="textSecondary">
-            Location unavailable — showing events with coordinates first.
+            {t('locUnavailable')}
           </ThemedText>
         )}
 
@@ -770,25 +940,21 @@ export default function HomeScreen() {
           <EmptyState
             title={
               categoryFilter
-                ? 'No events in this category'
+                ? t('noEventsCat')
                 : followingOnly
-                  ? 'No events from people you follow'
-                  : 'No events yet'
+                  ? t('noEventsFollow')
+                  : t('noEvents')
             }
-            subtitle={
-              followingOnly
-                ? 'Follow classmates to see their events here.'
-                : 'Tap “+ CREATE EVENT” to add the first one!'
-            }
+            subtitle={followingOnly ? t('emptyFollow') : t('emptyCreate')}
           />
         ) : dateGroups ? (
           dateGroups.map((group) => (
             <View key={group.key}>
               <View style={styles.dateHeader}>
                 <View style={[styles.dateBar, { backgroundColor: colors.accentPink, borderColor: colors.border }]} />
-                <ThemedText style={styles.dateHeaderText}>{group.label}</ThemedText>
+                <ThemedText style={styles.dateHeaderText} accessibilityRole="header">{group.label}</ThemedText>
                 <ThemedText style={styles.dateCount} themeColor="textSecondary">
-                  {group.events.length} {group.events.length === 1 ? 'event' : 'events'}
+                  {group.events.length} {group.events.length === 1 ? t('eventOne') : t('eventMany')}
                 </ThemedText>
               </View>
               {group.events.map(renderEventCard)}
@@ -807,7 +973,7 @@ export default function HomeScreen() {
             {loadingMore ? (
               <ActivityIndicator size="small" color={colors.text} />
             ) : (
-              <ThemedText style={styles.loadMoreText}>Load more events</ThemedText>
+              <ThemedText style={styles.loadMoreText}>{t('loadMore')}</ThemedText>
             )}
           </TouchableOpacity>
         )}
@@ -820,30 +986,31 @@ export default function HomeScreen() {
         onSubmit={handleCreateSubmit}
         onSuccess={fetchAll}
       />
+      <GuestLockedModal visible={guestLockVisible} onClose={() => setGuestLockVisible(false)} />
     </SafeAreaView>
   );
 }
 
-function formatEventTime(iso: string | null): string {
-  if (!iso) return 'Date TBD';
+function formatEventTime(iso: string | null, locale?: string, tbd = 'Date TBD'): string {
+  if (!iso) return tbd;
   const d = new Date(iso.includes('T') ? iso : `${iso}T00:00:00`);
   if (isNaN(d.getTime())) return iso;
-  const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const date = d.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
   const hasTime = iso.includes('T') && !iso.endsWith('T00:00:00');
   if (!hasTime) return date;
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const time = d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
   return `${date} · ${time}`;
 }
 
-function rsvpSummary(usernames: string[], count: number): string {
-  if (usernames.length === 0) return `${count} going`;
+function rsvpSummary(usernames: string[], count: number, going = 'going'): string {
+  if (usernames.length === 0) return `${count} ${going}`;
   const shown = usernames.slice(0, 3).join(', ');
   const extra = count - Math.min(usernames.length, 3);
-  return extra > 0 ? `${shown} +${extra} going` : `${shown} going`;
+  return extra > 0 ? `${shown} +${extra} ${going}` : `${shown} ${going}`;
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { padding: Spacing.four, paddingBottom: 130 },
+  scrollContent: { padding: Spacing.four, paddingBottom: 130, width: '100%', maxWidth: 800, alignSelf: 'center' },
   loadingWrap: { paddingVertical: Spacing.six, alignItems: 'center' },
   cardCover: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, marginBottom: Spacing.two },
   cardCategory: { alignSelf: 'flex-start', borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: 2, marginBottom: Spacing.one },
