@@ -1,7 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Modal, StyleSheet, TextInput, TouchableOpacity, View,
+  ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, StyleSheet, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -93,7 +93,9 @@ export default function GroupThreadScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    // Keeps the message box above the on-screen keyboard while typing.
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/messages'))}>
           <ThemedText style={[styles.back, { color: colors.text }]}>‹</ThemedText>
@@ -109,6 +111,8 @@ export default function GroupThreadScreen() {
         data={messages}
         keyExtractor={(m) => m.id}
         contentContainerStyle={styles.messages}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         ListEmptyComponent={
           <ThemedText style={styles.empty} themeColor="textSecondary">No messages yet. Say hi 👋</ThemedText>
@@ -187,6 +191,7 @@ export default function GroupThreadScreen() {
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 

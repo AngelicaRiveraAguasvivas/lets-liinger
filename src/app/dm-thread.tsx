@@ -1,7 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Image, Pressable, StyleSheet, TextInput, TouchableOpacity, View,
+  ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -182,6 +182,8 @@ export default function DmThreadScreen() {
   }
 
   return (
+    // Keeps the message box above the on-screen keyboard while typing.
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
     <SafeAreaView style={dynamicStyles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
       <View style={styles.topRow}>
         <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/messages'))}>
@@ -205,6 +207,8 @@ export default function DmThreadScreen() {
         contentContainerStyle={styles.listContent}
         data={[...messages].reverse()}
         inverted
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           seenReceipt ? (
@@ -265,6 +269,7 @@ export default function DmThreadScreen() {
         </TouchableOpacity>
       </View>
     </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
