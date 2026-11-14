@@ -26,7 +26,7 @@ import { useNotifications } from '@/hooks/notifications-context';
 import { useTheme } from '@/hooks/use-theme';
 import { useUserCoords } from '@/hooks/use-user-coords';
 import { EVENT_CATEGORIES, categoryColor, categoryLabel, categoryTKey } from '@/lib/categories';
-import { DEMO_SCHOOL, getDemoEvents, isDemoId } from '@/lib/demo';
+import { DEMO_SCHOOL, getDemoEvents } from '@/lib/demo';
 import type { TKey } from '@/lib/i18n';
 import { getUnreadNotificationCount } from '@/lib/notifications';
 import { cancelRsvp, rsvpToEvent } from '@/lib/rsvp';
@@ -209,9 +209,6 @@ export default function HomeScreen() {
   const [guestPosted, setGuestPosted] = useState<EnrichedEvent[]>([]);
   // Guest likes/RSVPs, so toggling survives switching tabs.
   const [guestToggles, setGuestToggles] = useState<Record<string, { liked?: boolean; rsvped?: boolean }>>({});
-  // Signed in, but nothing upcoming has been posted: show the sample events
-  // (with a banner saying so) instead of an empty feed.
-  const [showingSamples, setShowingSamples] = useState(false);
 
   // Show the saved feed instantly on open (signed-in only).
   useEffect(() => {
@@ -231,9 +228,9 @@ export default function HomeScreen() {
   }, [isGuest]);
 
   const fetchAll = useCallback(async () => {
-    // Sample events with any local likes/RSVPs applied. Used for guests, and
-    // for signed-in people when there are no real upcoming events.
-    const buildDemo = (): EnrichedEvent[] => getDemoEvents().map((e) => {
+    if (isGuest) {
+      // Guest mode: sample events, no network calls.
+      const demo: EnrichedEvent[] = getDemoEvents().map((e) => {
         const tog = guestToggles[e.id] ?? {};
         const liked = !!tog.liked;
         const rsvped = !!tog.rsvped;
@@ -262,11 +259,6 @@ export default function HomeScreen() {
           tags: e.tags,
         };
       });
-
-    if (isGuest) {
-      // Guest mode: sample events, no network calls.
-      const demo = buildDemo();
-      setShowingSamples(false);
       setUserId(null);
       setMyUniversity(DEMO_SCHOOL);
       setMyInterests(['Music', 'Career']);
@@ -376,9 +368,7 @@ export default function HomeScreen() {
       };
     });
 
-    const useSamples = enriched.length === 0 && !showPast;
-    setShowingSamples(useSamples);
-    setEvents(useSamples ? buildDemo() : enriched);
+    setEvents(enriched);
     setLoading(false);
     setLoadingMore(false);
 
@@ -421,7 +411,7 @@ export default function HomeScreen() {
   // and roll back only if the write actually fails. Avoids refetching every
   // event/like/rsvp in the feed for a single-row change.
   async function toggleRsvp(ev: EnrichedEvent) {
-    if (isGuest || isDemoId(ev.id)) {
+    if (isGuest) {
       setGuestToggles((g) => ({ ...g, [ev.id]: { ...g[ev.id], rsvped: !ev.rsvpedByMe } }));
       setEvents((prev) => prev.map((e) => (e.id === ev.id
         ? { ...e, rsvpedByMe: !e.rsvpedByMe, rsvpCount: e.rsvpCount + (e.rsvpedByMe ? -1 : 1) }
@@ -449,7 +439,7 @@ export default function HomeScreen() {
   }
 
   async function toggleLike(ev: EnrichedEvent) {
-    if (isGuest || isDemoId(ev.id)) {
+    if (isGuest) {
       setGuestToggles((g) => ({ ...g, [ev.id]: { ...g[ev.id], liked: !ev.likedByMe } }));
       setEvents((prev) => prev.map((e) => (e.id === ev.id
         ? { ...e, likedByMe: !e.likedByMe, likeCount: e.likeCount + (e.likedByMe ? -1 : 1) }
@@ -563,7 +553,7 @@ export default function HomeScreen() {
     // of the mine/all scope toggle — that toggle is just the viewer's own
     // feed preference, not a bypass for another school's private events.
     .filter((e) => (e.visibility === 'school' ? e.school === myUniversity || e.createdBy === userId : true))
-    .filter((e) => (scope === 'mine' && myUniversity && !isDemoId(e.id) ? e.school === myUniversity : true))
+    .filter((e) => (scope === 'mine' && myUniversity ? e.school === myUniversity : true))
     .filter((e) => (followingOnly ? !!e.createdBy && followingIds.has(e.createdBy) : true))
     .filter((e) => (categoryFilter ? e.category === categoryFilter : true))
     .filter((e) => (tagFilter ? e.tags.includes(tagFilter) : true))
@@ -686,7 +676,7 @@ export default function HomeScreen() {
 
       <View style={styles.metaRow}>
         <ThemedText style={styles.metaLabel}>{t('hostedBy')}</ThemedText>
-        {event.hostName.startsWith('@') || isGuest || isDemoId(event.id) ? (
+        {event.hostName.startsWith('@') || isGuest ? (
           <ThemedText style={styles.metaValue}>{event.hostName}</ThemedText>
         ) : (
           <TouchableOpacity onPress={() => router.push(`/club?name=${encodeURIComponent(event.hostName)}`)}>
@@ -752,7 +742,7 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.cardFooter}>
-        {event.createdBy && event.createdBy !== userId && !isGuest && !isDemoId(event.id) ? (
+        {event.createdBy && event.createdBy !== userId && !isGuest ? (
           <TouchableOpacity onPress={() => router.push(`/user?id=${event.createdBy}`)}>
             <ThemedText style={styles.postedText} themeColor="textSecondary">
               {t('postedBy', { time: formatPosted(event.created_at, t('justNow'), locale), who: event.postedBy })}
@@ -800,7 +790,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {isGuest || showingSamples ? <GuestBanner /> : null}
+        {isGuest ? <GuestBanner /> : null}
 
         <ShadowSurface
           backgroundColor={colors.backgroundElement}
