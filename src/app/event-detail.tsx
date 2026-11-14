@@ -1,7 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Image, Modal, ScrollView, StyleSheet, TextInput, TouchableOpacity, View,
+  ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -484,7 +484,15 @@ function RealEventDetail() {
 
   return (
     <SafeAreaView style={dynamicStyles.safeArea} edges={['top', 'left', 'right']}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      {/* Lets the comment box scroll up above the on-screen keyboard. */}
+      {/* iOS: the ScrollView adjusts its own insets; Android: pad above the keyboard. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'android' ? 'padding' : undefined}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         <View style={styles.topRow}>
           <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={styles.backBtn}>
             <ThemedText style={dynamicStyles.headerText}>‹ back</ThemedText>
@@ -781,6 +789,7 @@ function RealEventDetail() {
           })
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Delete confirmation */}
       <Modal visible={deleteVisible} transparent animationType="fade" onRequestClose={() => setDeleteVisible(false)}>
