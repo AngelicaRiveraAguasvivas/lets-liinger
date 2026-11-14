@@ -14,16 +14,49 @@ import { useTheme } from '@/hooks/use-theme';
 // puts Profile in the middle (Home · Calendar · Profile · Map · Messages).
 const TAB_ICON_SIZE = 26;
 
-function TabIcon({ source, focused, showDot }: { source: any; focused?: boolean; showDot?: boolean }) {
+// Each hand-drawn icon is split into three stacked layers so it follows the
+// accent color picked in Settings: the pink fill is tinted accentPink, the
+// cyan outline accentCyan, and the black linework stays as drawn. With the
+// default colors it looks exactly like the original drawing.
+const ICONS = {
+  home: {
+    fill: require('@/assets/images/tabIcons/home-fill.png'),
+    line: require('@/assets/images/tabIcons/home-line.png'),
+    ink: require('@/assets/images/tabIcons/home-ink.png'),
+  },
+  calendar: {
+    fill: require('@/assets/images/tabIcons/calendar-fill.png'),
+    line: require('@/assets/images/tabIcons/calendar-line.png'),
+    ink: require('@/assets/images/tabIcons/calendar-ink.png'),
+  },
+  profile: {
+    fill: require('@/assets/images/tabIcons/profile-fill.png'),
+    line: require('@/assets/images/tabIcons/profile-line.png'),
+    ink: require('@/assets/images/tabIcons/profile-ink.png'),
+  },
+  map: {
+    fill: require('@/assets/images/tabIcons/map-fill.png'),
+    line: require('@/assets/images/tabIcons/map-line.png'),
+    ink: require('@/assets/images/tabIcons/map-ink.png'),
+  },
+  messages: {
+    fill: require('@/assets/images/tabIcons/messages-fill.png'),
+    line: require('@/assets/images/tabIcons/messages-line.png'),
+    ink: require('@/assets/images/tabIcons/messages-ink.png'),
+  },
+};
+
+function TabIcon({ icon, focused, showDot }: { icon: keyof typeof ICONS; focused?: boolean; showDot?: boolean }) {
   const colors = useTheme();
+  const layers = ICONS[icon];
+  const size = { width: TAB_ICON_SIZE, height: TAB_ICON_SIZE };
   return (
-    <View>
-      <Image
-        source={source}
-        style={{ width: TAB_ICON_SIZE, height: TAB_ICON_SIZE, tintColor: '#fff', opacity: focused ? 1 : 0.5 }}
-      />
+    <View style={[size, { opacity: focused ? 1 : 0.55, transform: [{ scale: focused ? 1.12 : 1 }] }]}>
+      <Image source={layers.fill} style={[StyleSheet.absoluteFill, size, { tintColor: colors.accentPink }]} />
+      <Image source={layers.line} style={[StyleSheet.absoluteFill, size, { tintColor: colors.accentCyan }]} />
+      <Image source={layers.ink} style={[StyleSheet.absoluteFill, size]} />
       {showDot ? (
-        <View style={[styles.dot, { backgroundColor: colors.accentPink, borderColor: '#1b1b20' }]} />
+        <View style={[styles.dot, { backgroundColor: colors.accentYellow, borderColor: '#1b1b20' }]} />
       ) : null}
     </View>
   );
@@ -69,7 +102,7 @@ export default function TabLayout() {
         options={{
           tabBarAccessibilityLabel: t('tabHome'),
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={require('@/assets/images/tabIcons/home.png')} focused={focused} showDot={hasNewEvents} />
+            <TabIcon icon="home" focused={focused} showDot={hasNewEvents} />
           ),
         }}
       />
@@ -78,7 +111,7 @@ export default function TabLayout() {
         options={{
           tabBarAccessibilityLabel: t('tabCalendar'),
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={require('@/assets/images/tabIcons/calendar.png')} focused={focused} />
+            <TabIcon icon="calendar" focused={focused} />
           ),
         }}
       />
@@ -87,7 +120,7 @@ export default function TabLayout() {
         options={{
           tabBarAccessibilityLabel: t('tabProfile'),
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={require('@/assets/images/tabIcons/profile.png')} focused={focused} />
+            <TabIcon icon="profile" focused={focused} />
           ),
         }}
       />
@@ -96,7 +129,7 @@ export default function TabLayout() {
         options={{
           tabBarAccessibilityLabel: t('tabMap'),
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={require('@/assets/images/tabIcons/map.png')} focused={focused} />
+            <TabIcon icon="map" focused={focused} />
           ),
         }}
       />
@@ -105,7 +138,7 @@ export default function TabLayout() {
         options={{
           tabBarAccessibilityLabel: t('tabMessages'),
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={require('@/assets/images/tabIcons/messages.png')} focused={focused} showDot={hasUnreadMessages} />
+            <TabIcon icon="messages" focused={focused} showDot={hasUnreadMessages} />
           ),
         }}
       />
