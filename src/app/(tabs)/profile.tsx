@@ -199,7 +199,7 @@ function ProfileScreenSigned() {
           <ThemedText style={dynamicStyles.headerText}>my profile</ThemedText>
           <View style={styles.headerActions}>
             <IconButton icon={require('@/assets/images/icons/search.png')} accessibilityLabel="Search" onPress={() => router.push('/search')} />
-            <IconButton emoji="⚙️" accessibilityLabel="Settings" onPress={() => router.push('/settings')} />
+            <IconButton menu accessibilityLabel="Settings" onPress={() => router.push('/settings')} />
           </View>
         </View>
 

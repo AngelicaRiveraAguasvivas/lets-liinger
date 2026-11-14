@@ -799,7 +799,6 @@ export default function HomeScreen() {
           wrapperStyle={styles.searchShadow}
           style={styles.searchContainer}
         >
-          <ThemedText style={styles.searchIcon} importantForAccessibility="no" accessibilityElementsHidden>🔍</ThemedText>
           <TextInput
             style={dynamicStyles.input}
             accessibilityLabel={t('searchEvents')}
@@ -1029,7 +1028,6 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
   searchShadow: { marginTop: Spacing.two, marginBottom: Spacing.three },
   searchContainer: { flexDirection: 'row', alignItems: 'center', padding: Spacing.one },
-  searchIcon: { fontSize: 15, paddingLeft: Spacing.two },
   createShadow: { marginBottom: Spacing.three },
   createBtn: { paddingVertical: Spacing.two, alignItems: 'center' },
   tagPill: { alignSelf: 'flex-start', borderWidth: 2, borderRadius: 999, paddingHorizontal: Spacing.three, paddingVertical: 5, marginBottom: Spacing.three },

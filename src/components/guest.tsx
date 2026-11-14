@@ -86,7 +86,7 @@ export function GuestProfile() {
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.headerRow}>
           <ThemedText style={styles.pageTitle} accessibilityRole="header">@{DEMO_PROFILE.username}</ThemedText>
-          <IconButton emoji="⚙️" accessibilityLabel="Settings" onPress={() => router.push('/settings')} />
+          <IconButton menu accessibilityLabel="Settings" onPress={() => router.push('/settings')} />
         </View>
         <GuestBanner />
 
