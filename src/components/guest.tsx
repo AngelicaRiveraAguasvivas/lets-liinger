@@ -21,22 +21,20 @@ export function useLeaveGuest() {
 export function GuestBanner() {
   const colors = useTheme();
   const { t } = useT();
-  const { isGuest } = useAppPrefs();
   const leave = useLeaveGuest();
   return (
     <View
       style={[styles.banner, { borderColor: colors.border, backgroundColor: colors.backgroundElement }]}
       accessibilityRole="summary"
     >
-      <ThemedText style={styles.bannerText}>{t(isGuest ? 'guestBanner' : 'sampleBanner')}</ThemedText>
-      {/* Signed-in people seeing samples (empty feed) already have an account. */}
-      {isGuest ? <TouchableOpacity
+      <ThemedText style={styles.bannerText}>{t('guestBanner')}</ThemedText>
+      <TouchableOpacity
         onPress={leave}
         style={[styles.bannerBtn, { backgroundColor: colors.accentYellow, borderColor: colors.border }]}
         accessibilityRole="button"
       >
         <ThemedText style={styles.bannerBtnText}>{t('guestCta')}</ThemedText>
-      </TouchableOpacity> : null}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -45,16 +43,15 @@ export function GuestBanner() {
 export function GuestLockedModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const colors = useTheme();
   const { t } = useT();
-  const { isGuest } = useAppPrefs();
   const leave = useLeaveGuest();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={t('close')}>
         <Pressable onPress={() => {}} style={styles.modalInner}>
           <ShadowSurface backgroundColor={colors.backgroundElement} radius={20} offset={5} style={styles.modalCard}>
-            <ThemedText style={styles.modalTitle} accessibilityRole="header">{t(isGuest ? 'guestLockedTitle' : 'sampleLockedTitle')}</ThemedText>
-            <ThemedText style={styles.modalBody} themeColor="textSecondary">{t(isGuest ? 'guestLockedBody' : 'sampleLockedBody')}</ThemedText>
-            {isGuest ? <ShadowSurface
+            <ThemedText style={styles.modalTitle} accessibilityRole="header">{t('guestLockedTitle')}</ThemedText>
+            <ThemedText style={styles.modalBody} themeColor="textSecondary">{t('guestLockedBody')}</ThemedText>
+            <ShadowSurface
               backgroundColor={colors.accentYellow}
               radius={12}
               offset={3}
@@ -66,7 +63,7 @@ export function GuestLockedModal({ visible, onClose }: { visible: boolean; onClo
               }}
             >
               <ThemedText style={styles.modalBtnText}>{t('guestCta')}</ThemedText>
-            </ShadowSurface> : null}
+            </ShadowSurface>
             <TouchableOpacity onPress={onClose} style={styles.modalClose} accessibilityRole="button">
               <ThemedText style={styles.modalCloseText}>{t('close')}</ThemedText>
             </TouchableOpacity>
@@ -89,7 +86,7 @@ export function GuestProfile() {
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.headerRow}>
           <ThemedText style={styles.pageTitle} accessibilityRole="header">@{DEMO_PROFILE.username}</ThemedText>
-          <IconButton emoji="⚙️" accessibilityLabel="Settings" onPress={() => router.push('/settings')} />
+          <IconButton menu accessibilityLabel="Settings" onPress={() => router.push('/settings')} />
         </View>
         <GuestBanner />
 
